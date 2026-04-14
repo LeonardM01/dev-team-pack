@@ -1,1 +1,0 @@
-- [Cursor port — Phase 1](project_cursor_port.md) — sync-cursor.mjs complete; .cursor/ generated from .claude/; Phase 2+3 pending as of 2026-04-14
