@@ -87,7 +87,7 @@ Invoke the agent via the `Agent` tool:
 
 - `subagent_type: "code-architect"`
 - `description`: "Kick off <TICKET>: <short summary>"
-- `prompt`: include the full `.jira-brief.md` contents inline, the worktree absolute path, the Jira URL, and an explicit instruction: "Treat `<worktree path>` as your working directory. Follow your normal chain: analyze patterns, design the architecture, delegate implementation to the fullstack-developer (Harry), then hand off to hermione-code-reviewer and ron-docs-maintainer as appropriate. Do not modify files outside the worktree."
+- `prompt`: include the full `.jira-brief.md` contents inline, the worktree absolute path, the Jira URL, and an explicit instruction: "Treat `<worktree path>` as your working directory. Follow your normal chain: analyze patterns, design the architecture, delegate implementation to the fullstack-developer (Harry), then hand off to code-reviewer and docs-maintainer as appropriate. Do not modify files outside the worktree."
 - Do NOT pass `isolation: worktree` — the worktree we created IS the isolation.
 
 ## Step 6 — Report back to the user

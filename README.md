@@ -12,8 +12,8 @@ Defined in `.claude/agents/`:
 |---|---|---|
 | `code-architect` | **Albus** | Analyzes codebase patterns, designs the architecture, breaks work into tasks, and delegates. Model: Opus. |
 | `fullstack-developer` | **Harry** | Implements features across DB, API, and frontend. Model: Sonnet. |
-| `hermione-code-reviewer` | Hermione | Reviews diffs for correctness, edge cases, security. |
-| `ron-docs-maintainer` | Ron | Keeps README / CLAUDE.md / docs in sync after code changes. |
+| `code-reviewer` | Hermione | Reviews diffs for correctness, edge cases, security. |
+| `docs-maintainer` | Ron | Keeps README / CLAUDE.md / docs in sync after code changes. |
 
 Albus is the orchestrator — he delegates implementation to Harry, then hands the diff to Hermione for review and to Ron for docs.
 

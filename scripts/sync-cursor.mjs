@@ -217,7 +217,7 @@ Invoke the agent via the \`Agent\` tool:
 
 - \`subagent_type: "code-architect"\`
 - \`description\`: "Kick off <TICKET>: <short summary>"
-- \`prompt\`: include the full \`.jira-brief.md\` contents inline, the worktree absolute path, the Jira URL, and an explicit instruction: "Treat \`<worktree path>\` as your working directory. Follow your normal chain: analyze patterns, design the architecture, delegate implementation to the fullstack-developer (Harry), then hand off to hermione-code-reviewer and ron-docs-maintainer as appropriate. Do not modify files outside the worktree."
+- \`prompt\`: include the full \`.jira-brief.md\` contents inline, the worktree absolute path, the Jira URL, and an explicit instruction: "Treat \`<worktree path>\` as your working directory. Follow your normal chain: analyze patterns, design the architecture, delegate implementation to the fullstack-developer (Harry), then hand off to code-reviewer and docs-maintainer as appropriate. Do not modify files outside the worktree."
 - Do NOT pass \`isolation: worktree\` — the worktree we created IS the isolation.`,
       `## Step 5 — Switch to Albus persona
 
@@ -291,8 +291,8 @@ const cursorReadme = `# .cursor/ — generated files
 | \`mcp.json\` | \`.mcp.json\` (byte-identical copy) |
 | \`rules/albus-architect.mdc\` | \`.claude/agents/code-architect.md\` |
 | \`rules/harry-developer.mdc\` | \`.claude/agents/fullstack-developer.md\` |
-| \`rules/hermione-reviewer.mdc\` | \`.claude/agents/hermione-code-reviewer.md\` |
-| \`rules/ron-docs.mdc\` | \`.claude/agents/ron-docs-maintainer.md\` |
+| \`rules/hermione-reviewer.mdc\` | \`.claude/agents/code-reviewer.md\` |
+| \`rules/ron-docs.mdc\` | \`.claude/agents/docs-maintainer.md\` |
 | \`rules/jira-start.mdc\` | \`.claude/skills/jira-start/SKILL.md\` |
 
 ## MCP server approval
@@ -322,20 +322,20 @@ const personas = [
     memFile: 'fullstack-developer.md',
   },
   {
-    source: '.claude/agents/hermione-code-reviewer.md',
+    source: '.claude/agents/code-reviewer.md',
     target: '.cursor/rules/hermione-reviewer.mdc',
     frontmatter: FRONTMATTER.hermione,
     footer: FOOTERS.hermione,
-    memPersona: 'hermione-code-reviewer',
-    memFile: 'hermione-code-reviewer.md',
+    memPersona: 'code-reviewer',
+    memFile: 'code-reviewer.md',
   },
   {
-    source: '.claude/agents/ron-docs-maintainer.md',
+    source: '.claude/agents/docs-maintainer.md',
     target: '.cursor/rules/ron-docs.mdc',
     frontmatter: FRONTMATTER.ron,
     footer: FOOTERS.ron,
-    memPersona: 'ron-docs-maintainer',
-    memFile: 'ron-docs-maintainer.md',
+    memPersona: 'docs-maintainer',
+    memFile: 'docs-maintainer.md',
   },
 ];
 

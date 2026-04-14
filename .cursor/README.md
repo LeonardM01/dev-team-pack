@@ -15,8 +15,8 @@
 | `mcp.json` | `.mcp.json` (byte-identical copy) |
 | `rules/albus-architect.mdc` | `.claude/agents/code-architect.md` |
 | `rules/harry-developer.mdc` | `.claude/agents/fullstack-developer.md` |
-| `rules/hermione-reviewer.mdc` | `.claude/agents/hermione-code-reviewer.md` |
-| `rules/ron-docs.mdc` | `.claude/agents/ron-docs-maintainer.md` |
+| `rules/hermione-reviewer.mdc` | `.claude/agents/code-reviewer.md` |
+| `rules/ron-docs.mdc` | `.claude/agents/docs-maintainer.md` |
 | `rules/jira-start.mdc` | `.claude/skills/jira-start/SKILL.md` |
 
 ## MCP server approval

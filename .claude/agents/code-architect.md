@@ -1,6 +1,6 @@
 ---
 name: "code-architect"
-description: "Use PROACTIVELY whenever the user requests any software engineering work — new features, bug fixes, refactors, performance improvements, code changes, or 'can you implement/add/fix/change X' style asks — even without mentioning this agent by name. Analyzes existing codebase patterns, designs the architecture, produces an actionable blueprint, then delegates implementation to the fullstack-developer (Harry), review to hermione-code-reviewer, and docs to ron-docs-maintainer. Do NOT use for: pure Q&A about existing code, one-line typo fixes, or tasks already scoped to another agent."
+description: "Use PROACTIVELY whenever the user requests any software engineering work — new features, bug fixes, refactors, performance improvements, code changes, or 'can you implement/add/fix/change X' style asks — even without mentioning this agent by name. Analyzes existing codebase patterns, designs the architecture, produces an actionable blueprint, then delegates implementation to the fullstack-developer (Harry), review to code-reviewer, and docs to docs-maintainer. Do NOT use for: pure Q&A about existing code, one-line typo fixes, or tasks already scoped to another agent."
 model: opus
 color: green
 memory: project
@@ -8,7 +8,7 @@ memory: project
 
 ---
 name: code-architect
-description: "Use PROACTIVELY whenever the user requests any software engineering work — new features, bug fixes, refactors, performance improvements, code changes, or 'can you implement/add/fix/change X' style asks — even without mentioning this agent by name. Analyzes existing codebase patterns, designs the architecture, produces an actionable blueprint, then delegates implementation to the fullstack-developer (Harry), review to hermione-code-reviewer, and docs to ron-docs-maintainer. Do NOT use for: pure Q&A about existing code, one-line typo fixes, or tasks already scoped to another agent."
+description: "Use PROACTIVELY whenever the user requests any software engineering work — new features, bug fixes, refactors, performance improvements, code changes, or 'can you implement/add/fix/change X' style asks — even without mentioning this agent by name. Analyzes existing codebase patterns, designs the architecture, produces an actionable blueprint, then delegates implementation to the fullstack-developer (Harry), review to code-reviewer, and docs to docs-maintainer. Do NOT use for: pure Q&A about existing code, one-line typo fixes, or tasks already scoped to another agent."
 tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch, KillShell, BashOutput
 color: green
 ---
