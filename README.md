@@ -2,6 +2,8 @@
 
 A Claude Code "virtual team" for driving Jira tickets end-to-end: Jira fetch → isolated git worktree → architect → developer → reviewer → docs. Each ticket runs in its own worktree so you can work several in parallel.
 
+**Works in both Claude Code and Cursor.**
+
 ## The team
 
 Defined in `.claude/agents/`:
@@ -35,7 +37,7 @@ Each agent has its own persistent memory under `.claude/agent-memory/<agent>/` (
 
 ## MCP servers (project-scoped)
 
-`.mcp.json` at the project root enables three MCP servers automatically for anyone who opens this repo in Claude Code:
+`.mcp.json` at the project root enables four MCP servers automatically for anyone who opens this repo in Claude Code:
 
 | Server | Purpose |
 |---|---|
@@ -44,7 +46,7 @@ Each agent has its own persistent memory under `.claude/agent-memory/<agent>/` (
 | **playwright** | Drive a real browser for end-to-end tests and UI verification. |
 | **atlassian** | Read Jira tickets (used by the `jira-start` skill). OAuth on first connect. |
 
-They're pre-approved via `.claude/settings.json` (`enabledMcpjsonServers`). On first launch, run `/mcp` to confirm all three are connected. Set `FIGMA_API_KEY` in your shell before launching Claude Code if you use the Figma server.
+They're pre-approved via `.claude/settings.json` (`enabledMcpjsonServers`). On first launch, run `/mcp` to confirm all four are connected. Set `FIGMA_API_KEY` in your shell before launching Claude Code if you use the Figma server.
 
 ## Usage
 
@@ -55,6 +57,27 @@ In Claude Code:
 ```
 
 Answer the two prompts (ticket key + repo path). The skill does the rest and hands control to Albus.
+
+## Using this repo in Cursor
+
+- Install [Cursor](https://cursor.sh).
+- On first open, Cursor will prompt to approve MCP servers from `.cursor/mcp.json` — approve all four (`context7`, `figma`, `playwright`, `atlassian`).
+- Set `FIGMA_API_KEY` in your environment if you use the Figma server.
+- Trigger the team: type `@albus-architect` for a direct kickoff, or `@jira-start` to run the Jira flow.
+- **Persona switching**: Cursor has no subagent primitive, so Albus explicitly "switches persona" mid-session by loading the next rule. This is intentional — follow the agent's announcements to know which persona is currently active.
+- **Parallel tickets**: open each `.worktrees/<KEY>` as a separate Cursor window (File → Open Folder).
+
+### Keeping Cursor files in sync
+
+`.cursor/rules/*.mdc` and `.cursor/mcp.json` are **generated** from `.claude/` by `scripts/sync-cursor.mjs`. Do not edit them by hand.
+
+After editing any `.claude/agents/*.md` or `.mcp.json`, regenerate:
+
+```bash
+node scripts/sync-cursor.mjs
+```
+
+Commit the regenerated `.cursor/` files alongside the `.claude/` changes.
 
 ## Working multiple tickets in parallel
 
@@ -86,10 +109,21 @@ git -C /path/to/repo branch -D <TICKET>
   agents/                         agent definitions (Albus, Harry, Hermione, Ron)
   agent-memory/<agent>/           persistent per-agent memory (versioned)
   skills/jira-start/SKILL.md      the ticket kickoff playbook
+.cursor/                          generated — do not edit by hand (run scripts/sync-cursor.mjs)
+  mcp.json                        copy of .mcp.json for Cursor's MCP approval flow
+  README.md                       notice that these files are generated
+  rules/
+    albus-architect.mdc           Albus persona rule
+    harry-developer.mdc           Harry persona rule
+    hermione-reviewer.mdc         Hermione persona rule
+    ron-docs.mdc                  Ron persona rule
+    jira-start.mdc                jira-start flow adapted for Cursor
+scripts/
+  sync-cursor.mjs                 regenerates .cursor/ from .claude/ (idempotent)
 ```
 
 ## Customizing
 
-- **Rename agents** — edit the `You are <Name>, ...` line at the top of each `.claude/agents/*.md`.
+- **Rename agents** — edit the `You are <Name>, ...` line at the top of each `.claude/agents/*.md`. If you rename an agent file itself, run `node scripts/sync-cursor.mjs` afterward to regenerate the corresponding Cursor rule.
 - **Change the worktree location** — edit Step 4 of `.claude/skills/jira-start/SKILL.md`.
 - **Swap Jira for another tracker** — replace the Atlassian MCP calls in Step 2 of the skill with your tracker's MCP or CLI.

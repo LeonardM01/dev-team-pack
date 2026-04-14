@@ -1,0 +1,129 @@
+---
+description: "Kick off work on a Jira ticket: prompt for ticket key + repo path, fetch via Atlassian MCP, create a git worktree at .worktrees/<KEY>, write a structured brief, then switch to the Albus persona. Trigger via @jira-start or phrases like 'start jira ticket', 'work on PROJ-123', 'new ticket'."
+alwaysApply: false
+---
+
+# jira-start
+
+Kick off work on a Jira ticket in an isolated worktree and delegate to the code-architect agent (Albus).
+
+## Preconditions
+
+Check before doing anything else. If any fail, stop and tell the user.
+
+1. **Atlassian MCP authenticated.** Atlassian MCP tools must be callable. If not connected, tell the user to run `/mcp` and authenticate the Atlassian server, then re-run the skill.
+2. **Target repo is a git repo.** `git -C <repo> rev-parse --is-inside-work-tree` must succeed.
+3. **Working tree of the main checkout is clean-ish.** Warn (don't block) on uncommitted changes in the main checkout; worktrees are independent so this is informational.
+
+## Step 1 — Collect inputs
+
+Ask the user in chat for:
+
+1. **Jira ticket key** (e.g. `PROJ-123`). Free text. Validate format `^[A-Z][A-Z0-9]+-\d+# jira-start
+
+Kick off work on a Jira ticket in an isolated worktree and delegate to the code-architect agent (Albus).
+
+## Preconditions
+
+Check before doing anything else. If any fail, stop and tell the user.
+
+1. **Atlassian MCP authenticated.** Atlassian MCP tools must be callable. If not connected, tell the user to run `/mcp` and authenticate the Atlassian server, then re-run the skill.
+2. **Target repo is a git repo.** `git -C <repo> rev-parse --is-inside-work-tree` must succeed.
+3. **Working tree of the main checkout is clean-ish.** Warn (don't block) on uncommitted changes in the main checkout; worktrees are independent so this is informational.
+
+## Step 1 — Collect inputs
+
+ before proceeding. Do not guess.
+2. **Target repo absolute path**. Free text. Default to the current working directory if it's a git repo.
+
+Do not guess — always ask, even if a key appears elsewhere in context.
+
+## Step 2 — Fetch ticket data via Atlassian MCP
+
+Call the Atlassian MCP tool(s) to retrieve the issue. Gather:
+
+- Summary, description (full, not truncated), status, priority, issue type
+- Labels, components, fix versions
+- Assignee, reporter, created/updated timestamps
+- Acceptance criteria field (custom field — look for `customfield_*` labeled "Acceptance Criteria" or similar)
+- Attachments: list filenames and URLs (do not download unless needed)
+- Linked issues and sub-tasks (key + summary + link type)
+- Most recent ~10 comments (author, created, body)
+- Canonical Jira URL
+
+If the ticket does not exist or the MCP call fails, abort with the error message.
+
+## Step 3 — Normalize into a brief
+
+Render the fetched data into `<repo>/.worktrees/<TICKET>/.jira-brief.md` with this structure:
+
+```markdown
+# <TICKET>: <Summary>
+
+- **Status:** ...
+- **Priority:** ... | **Type:** ...
+- **Assignee:** ... | **Reporter:** ...
+- **Labels:** ... | **Components:** ...
+- **Jira:** <url>
+
+## Description
+<full description, markdown-converted from ADF if needed>
+
+## Acceptance Criteria
+<bullet list or "not specified">
+
+## Linked Issues / Sub-tasks
+- <KEY> (<link type>): <summary>
+
+## Attachments
+- <filename> — <url>
+
+## Recent Comments
+### <author> — <date>
+<body>
+...
+```
+
+(Write this file AFTER the worktree exists — see Step 4.)
+
+## Step 4 — Create the worktree
+
+1. Ensure `.worktrees/` is ignored: read `<repo>/.gitignore`; if `.worktrees/` is not present, append it on its own line. If `.gitignore` doesn't exist, create it with that single line.
+2. Derive the branch name: use the ticket key verbatim (e.g. `PROJ-123`). If the repo uses lowercase branch conventions (check recent branches via `git -C <repo> branch --format='%(refname:short)' | head -20`), lowercase it.
+3. Run: `git -C <repo> worktree add .worktrees/<TICKET> -b <branch>`.
+4. If the branch already exists, ask the user in chat whether to (a) reuse it (`git worktree add .worktrees/<TICKET> <branch>` without `-b`), (b) replace it, or (c) abort.
+5. If `.worktrees/<TICKET>` already exists as a worktree, ask the user in chat whether to reuse it, remove+recreate, or abort.
+6. Now write the brief file from Step 3 into the worktree.
+
+## Step 5 — Switch to Albus persona
+
+Read `.cursor/rules/albus-architect.mdc` and adopt that persona. Pass the full
+`.jira-brief.md` contents inline as your working context. Treat `<worktree path>` as cwd.
+Follow Albus's normal chain (persona switches per the Cursor preface): analyze patterns,
+design the architecture, then switch to Harry for implementation, Hermione for review,
+and Ron for docs. Do not modify files outside the worktree.
+
+## Step 6 — Report back to the user
+
+Output a short summary:
+
+- Ticket: `<KEY>` — `<summary>` (`<jira url>`)
+- Worktree: `<absolute path>`
+- Branch: `<branch>`
+- Brief: `<worktree>/.jira-brief.md`
+- Architect: kicked off (or: finished / handed off to …)
+
+Tell the user they can open the worktree as a separate Cursor workspace/window (File → Open Folder → `<repo>/.worktrees/<KEY>`) to work on tickets in parallel.
+
+## Guardrails
+
+- **Do not start coding yourself.** Your job is Jira fetch → worktree → delegate. Implementation is Albus's chain.
+- **Do not edit anything outside `<repo>/.gitignore` and `<worktree>/.jira-brief.md`** during the skill run.
+- **Do not download attachments** unless the architect later asks for them.
+- **Never reuse a dirty worktree silently** — always prompt.
+
+- **Do not open a new Cursor window per ticket expecting session isolation** — Cursor sessions don't map 1:1 to worktrees the way Claude Code sessions do. Instead, open the worktree as a separate Cursor workspace/window (`File → Open Folder → <repo>/.worktrees/<KEY>`) if parallel work is desired.
+
+## Parallel tickets
+
+This skill makes no assumption of a single active ticket. Each run produces an independent `.worktrees/<KEY>` on its own branch. Run it as many times as needed; open each worktree as its own Cursor workspace/window (File → Open Folder → `<repo>/.worktrees/<KEY>`) to work on tickets concurrently.
