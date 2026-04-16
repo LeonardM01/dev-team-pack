@@ -127,6 +127,16 @@ alwaysApply: false
 description: "Kick off work on a Jira ticket: prompt for ticket key + repo path, fetch via Atlassian MCP, create a git worktree at .worktrees/<KEY>, write a structured brief, then switch to the Albus persona. Trigger via @jira-start or phrases like 'start jira ticket', 'work on PROJ-123', 'new ticket'."
 alwaysApply: false
 ---`,
+
+  grillMe: `---
+description: "Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Trigger via @grill-me or when user wants to stress-test a plan, get grilled on their design, or mentions 'grill me'."
+alwaysApply: false
+---`,
+
+  usingSuperpowers: `---
+description: "Meta-skill: always check for applicable skills before responding. Invoke relevant skills via @rule mentions BEFORE any response. Trigger at the start of every conversation or when any skill might apply."
+alwaysApply: false
+---`,
 };
 
 // ─── handoff footers (§3.3 + task 1.2) ─────────────────────────────────────
@@ -294,6 +304,8 @@ const cursorReadme = `# .cursor/ — generated files
 | \`rules/hermione-reviewer.mdc\` | \`.claude/agents/code-reviewer.md\` |
 | \`rules/ron-docs.mdc\` | \`.claude/agents/docs-maintainer.md\` |
 | \`rules/jira-start.mdc\` | \`.claude/skills/jira-start/SKILL.md\` |
+| \`rules/grill-me.mdc\` | \`.claude/skills/grill-me/SKILL.md\` |
+| \`rules/using-superpowers.mdc\` | \`.claude/skills/using-superpowers/SKILL.md\` |
 
 ## MCP server approval
 
@@ -351,6 +363,16 @@ for (const p of personas) {
 const skillMd = read('.claude/skills/jira-start/SKILL.md');
 const jiraContent = buildJiraStartRule(skillMd);
 track(writeIdempotent('.cursor/rules/jira-start.mdc', jiraContent));
+
+// 5. grill-me rule (simple skill, no Claude-specific tool replacements needed)
+const grillMeMd = read('.claude/skills/grill-me/SKILL.md');
+const grillMeBody = stripClaudeFrontmatter(grillMeMd);
+track(writeIdempotent('.cursor/rules/grill-me.mdc', `${FRONTMATTER.grillMe}\n\n${grillMeBody}`));
+
+// 6. using-superpowers rule (meta-skill, references Skill tool but works as behavioral instruction)
+const superpowersMd = read('.claude/skills/using-superpowers/SKILL.md');
+const superpowersBody = stripClaudeFrontmatter(superpowersMd);
+track(writeIdempotent('.cursor/rules/using-superpowers.mdc', `${FRONTMATTER.usingSuperpowers}\n\n${superpowersBody}`));
 
 // ─── summary ─────────────────────────────────────────────────────────────────
 console.log(`\nSynced ${wrote + unchanged} files, ${unchanged} unchanged.`);

@@ -20,6 +20,9 @@
     "atlassian": {
       "type": "http",
       "url": "https://mcp.atlassian.com/v1/sse"
+    },
+    "lean-ctx": {
+      "command": "lean-ctx"
     }
   }
 }

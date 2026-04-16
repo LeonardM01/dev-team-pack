@@ -18,6 +18,8 @@
 | `rules/hermione-reviewer.mdc` | `.claude/agents/code-reviewer.md` |
 | `rules/ron-docs.mdc` | `.claude/agents/docs-maintainer.md` |
 | `rules/jira-start.mdc` | `.claude/skills/jira-start/SKILL.md` |
+| `rules/grill-me.mdc` | `.claude/skills/grill-me/SKILL.md` |
+| `rules/using-superpowers.mdc` | `.claude/skills/using-superpowers/SKILL.md` |
 
 ## MCP server approval
 
