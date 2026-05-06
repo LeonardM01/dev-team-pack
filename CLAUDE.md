@@ -1,13 +1,42 @@
+## Tech Stack
+
+- TypeScript
+- Next.js
+- Tailwind
+- ShadCN
+
+## Architecture
+
+Explain folders and patterns.
+
+## Coding Rules
+
+- Use functional React components
+- Prefer server components
+- Use Tailwind utilities instead of custom CSS
+- do not put any comments in!
+- only 1 component per file named after the component
+- do not use constants for all text, only if there are some arrays, maps or json objects that get used. we do not need text or similar things as a constant
+
+## Design System
+
+- Follow ShadCN patterns
+
+## Commands - do not use any other for running development server
+
+npm run dev
+npm run build
+
 # lean-ctx — Context Engineering Layer
 
 PREFER lean-ctx MCP tools over native equivalents for token savings:
 
-| PREFER | OVER | Why |
-|--------|------|-----|
-| `ctx_read(path)` | Read / cat / head / tail | Session caching, 8 compression modes, re-reads cost ~13 tokens |
-| `ctx_shell(command)` | Bash (shell commands) | Pattern-based compression for git, npm, cargo, docker, tsc |
-| `ctx_search(pattern, path)` | Grep / rg | Compact context, token-efficient results |
-| `ctx_tree(path, depth)` | ls / find | Compact directory maps with file counts |
+| PREFER                      | OVER                     | Why                                                            |
+| --------------------------- | ------------------------ | -------------------------------------------------------------- |
+| `ctx_read(path)`            | Read / cat / head / tail | Session caching, 8 compression modes, re-reads cost ~13 tokens |
+| `ctx_shell(command)`        | Bash (shell commands)    | Pattern-based compression for git, npm, cargo, docker, tsc     |
+| `ctx_search(pattern, path)` | Grep / rg                | Compact context, token-efficient results                       |
+| `ctx_tree(path, depth)`     | ls / find                | Compact directory maps with file counts                        |
 
 ## ctx_read Modes
 
