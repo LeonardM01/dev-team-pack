@@ -4,6 +4,64 @@ A Claude Code "virtual team" for driving Jira tickets end-to-end: Jira fetch →
 
 **Works in both Claude Code and Cursor.**
 
+## Install / Quick Start
+
+Run from inside the target project's directory.
+
+```bash
+# macOS / Linux (curl)
+curl -fsSL https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/install.sh | bash
+
+# macOS / Linux (wget)
+wget -qO- https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell)
+iwr -useb https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/install.ps1 | iex
+```
+
+`cd` into your project first — the script operates on the current working directory.
+
+## What it does
+
+1. Clones dev-team-pack into a temp directory (shallow `git clone`; falls back to the GitHub codeload tarball if `git` is not available).
+2. Copies `.claude/` (agents, skills, settings) into the project. **Existing files are never overwritten.** `agent-memory/` is always preserved.
+3. Copies `.mcp.json` to the project root (skipped if one already exists).
+4. Appends the pack's `CLAUDE.md` to the project's `CLAUDE.md`, wrapped in `<!-- dev-team-pack:begin -->` / `<!-- dev-team-pack:end -->` markers. Re-running detects the marker and skips — idempotent.
+5. Runs `scripts/setup-env.sh` to install/verify the global tool stack: `lean-ctx`, `claude-mem`, and the Superpowers Claude Code plugin.
+6. If the `claude` CLI is installed, runs a one-shot analysis that detects the project's tech stack and rewrites the Tech Stack + Commands sections of the dev-team block in `CLAUDE.md` to reflect the actual `package.json` scripts (or equivalent).
+
+## Configuration
+
+Two environment variables control the source:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DEV_TEAM_REPO` | `https://github.com/LeonardM01/dev-team-pack.git` | Override the source repo |
+| `DEV_TEAM_REF` | `main` | Pin to a branch, tag, or commit |
+
+Recommended: pin to a tag for reproducible installs.
+
+```bash
+DEV_TEAM_REF=v1.0.0 curl -fsSL https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/install.sh | bash
+```
+
+## Requirements
+
+- `git` OR (`curl` or `wget`) for fetching
+- `tar` (Windows 10+ ships it; macOS/Linux include it by default)
+- `claude` CLI — optional; install via `npm i -g @anthropic-ai/claude-code`. If missing, files are still copied but the tech-stack analysis step is skipped.
+- Windows: `scripts/setup-env.sh` requires WSL or Git Bash. Without them, the installer logs a warning and continues; run `setup-env.sh` manually afterward.
+
+## Idempotency
+
+Re-running the installer is safe — already-installed files are left untouched. Existing project files always win. To upgrade, remove the dev-team marker block from `CLAUDE.md` (or delete the file) and re-run. This is a known limitation, not a bug.
+
+## Security note
+
+Piping a remote script to bash is trust-on-first-use. For security-sensitive environments, pin `DEV_TEAM_REF` to a tag and review the script before running.
+
 ## The team
 
 Defined in `.claude/agents/`:

@@ -62,13 +62,42 @@ else
   ok "claude-mem installed"
 fi
 
-# ─── 3. Verify ────────────────────────────────────────────────────────────
+is_superpowers_installed() {
+  command -v claude >/dev/null 2>&1 || return 1
+  claude plugin list 2>/dev/null | grep -qi "superpowers"
+}
+
+# ─── 3. Superpowers (Claude Code plugin) ──────────────────────────────────
+
+echo ""
+echo "Installing Superpowers Claude Code plugin..."
+if command -v claude &>/dev/null; then
+  if is_superpowers_installed; then
+    ok "Superpowers already installed"
+  else
+    claude plugin marketplace add claude-plugins-official 2>/dev/null || true
+    claude plugin install superpowers@claude-plugins-official \
+      && ok "Superpowers installed" \
+      || warn "Superpowers install failed (non-fatal) — add the marketplace manually (see https://claude.com/plugins/superpowers) then run: claude plugin install superpowers@claude-plugins-official"
+  fi
+else
+  warn "Claude Code CLI not found — skipping Superpowers install"
+fi
+
+# ─── 4. Verify ────────────────────────────────────────────────────────────
 
 echo ""
 echo "=== Verification ==="
 
 command -v lean-ctx &>/dev/null && ok "lean-ctx: $(lean-ctx --version)" || fail "lean-ctx not in PATH"
 command -v claude &>/dev/null  && ok "Claude Code CLI: $(claude --version 2>/dev/null || echo 'installed')" || warn "Claude Code CLI not found"
+if command -v claude &>/dev/null; then
+  if is_superpowers_installed; then
+    ok "Superpowers plugin: installed"
+  else
+    warn "Superpowers plugin: not found — run: claude plugin install superpowers@claude-plugins-official"
+  fi
+fi
 
 echo ""
 echo "Running lean-ctx doctor..."

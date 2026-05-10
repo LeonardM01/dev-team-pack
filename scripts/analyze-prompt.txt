@@ -1,0 +1,19 @@
+You are configuring the dev-team-pack CLAUDE.md for this specific project.
+
+Goal: read the project files and rewrite the "Tech Stack" and "Commands" sections of ./CLAUDE.md (only the section between the markers <!-- dev-team-pack:begin --> and <!-- dev-team-pack:end -->, or the entire file if no markers exist) so they reflect what is actually in this project.
+
+Steps:
+1. Detect the stack by inspecting, in this order: package.json, pnpm-lock.yaml, yarn.lock, bun.lockb, pyproject.toml, requirements.txt, Cargo.toml, go.mod, composer.json, Gemfile, mix.exs, build.gradle, pom.xml. List every framework and major library you can confirm from declared dependencies (do not guess).
+2. Identify the dev / build / test / lint / typecheck commands. For Node projects read package.json "scripts" verbatim. For Python read pyproject.toml [tool.*] and any tox.ini / Makefile. For Rust use cargo build / cargo test / cargo clippy. For Go use go build ./... / go test ./.... For others use the ecosystem default. If a script is missing, omit that line — do not invent commands.
+3. Edit ./CLAUDE.md so the dev-team block contains:
+   - A "## Tech Stack" section listing the detected stack as bullets.
+   - A "## Commands" section that lists ONLY the commands found in step 2, each on its own line in `code` formatting.
+   - Immediately under "## Commands", add this sentence verbatim: "The assistant MUST use only the commands listed above for running, building, testing, and linting this project. Do not invoke any other package manager, test runner, or build tool."
+4. Preserve all other content in CLAUDE.md (including any pre-existing project rules above the dev-team block).
+5. After editing, print a one-line summary: "Configured CLAUDE.md for <stack-summary>".
+
+Constraints:
+- Edit ./CLAUDE.md only. Do not modify any other file.
+- Do not add comments inside code blocks.
+- Do not add a "Coding Rules" or "Design System" section if one is not already present in the dev-team block — those are templated and the user will tailor them manually.
+- If you cannot determine the stack confidently (no recognizable manifest found), leave the existing Tech Stack and Commands sections untouched and instead print: "Could not auto-detect stack — left CLAUDE.md unchanged."
