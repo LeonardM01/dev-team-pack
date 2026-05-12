@@ -10,10 +10,10 @@ Run from inside the target project's directory.
 
 ```bash
 # macOS / Linux (curl)
-curl -fsSL https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/install.sh | bash
+curl -fsSL https://dev.leonard.solutions | bash
 
 # macOS / Linux (wget)
-wget -qO- https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/install.sh | bash
+wget -qO- https://dev.leonard.solutions | bash
 ```
 
 ```powershell
@@ -44,7 +44,7 @@ Two environment variables control the source:
 Recommended: pin to a tag for reproducible installs.
 
 ```bash
-DEV_TEAM_REF=v1.0.0 curl -fsSL https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/install.sh | bash
+DEV_TEAM_REF=v1.0.0 curl -fsSL https://dev.leonard.solutions | bash
 ```
 
 ## Requirements
