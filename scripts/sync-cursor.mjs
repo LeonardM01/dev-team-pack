@@ -128,6 +128,11 @@ description: "Kick off work on a Jira ticket: prompt for ticket key + repo path,
 alwaysApply: false
 ---`,
 
+  linearStart: `---
+description: "Kick off work on a Linear issue: prompt for issue ID + repo path, fetch via Linear MCP, create a git worktree at .worktrees/<ISSUE>, write a structured brief, then switch to the Albus persona. Trigger via @linear-start or phrases like 'start linear issue', 'work on ENG-123', 'new linear issue'."
+alwaysApply: false
+---`,
+
   grillMe: `---
 description: "Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Trigger via @grill-me or when user wants to stress-test a plan, get grilled on their design, or mentions 'grill me'."
 alwaysApply: false
@@ -269,6 +274,83 @@ and Ron for docs. Do not modify files outside the worktree.`,
   return `${FRONTMATTER.jiraStart}\n\n${body}`;
 }
 
+// ─── linear-start transformer (mirrors jira-start) ──────────────────────────
+
+function buildLinearStartRule(rawSkillMd) {
+  let body = stripClaudeFrontmatter(rawSkillMd);
+
+  const replacements = [
+    [
+      `Use \`AskUserQuestion\` to ask for:
+
+1. **Linear issue identifier** (e.g. \`ENG-123\`). Free text. Validate format \`^[A-Z][A-Z0-9]*-\\d+$\`.
+2. **Target repo absolute path**. Free text. Default to the current working directory if it's a git repo.
+
+Do not guess — always ask, even if an identifier appears elsewhere in context.`,
+      `Ask the user in chat for:
+
+1. **Linear issue identifier** (e.g. \`ENG-123\`). Free text. Validate format \`^[A-Z][A-Z0-9]*-\\d+$\` before proceeding. Do not guess.
+2. **Target repo absolute path**. Free text. Default to the current working directory if it's a git repo.
+
+Do not guess — always ask, even if an identifier appears elsewhere in context.`,
+    ],
+
+    [
+      `ask the user via \`AskUserQuestion\` whether to (a) reuse it`,
+      `ask the user in chat whether to (a) reuse it`,
+    ],
+
+    [
+      `ask whether to reuse it, remove+recreate, or abort.`,
+      `ask the user in chat whether to reuse it, remove+recreate, or abort.`,
+    ],
+
+    [
+      `## Step 5 — Delegate to code-architect (Albus)
+
+Invoke the agent via the \`Agent\` tool:
+
+- \`subagent_type: "code-architect"\`
+- \`description\`: "Kick off <ISSUE>: <short title>"
+- \`prompt\`: include the full \`.linear-brief.md\` contents inline, the worktree absolute path, the Linear URL, and an explicit instruction: "Treat \`<worktree path>\` as your working directory. Follow your normal chain: analyze patterns, design the architecture, delegate implementation to the fullstack-developer (Harry), then hand off to code-reviewer and docs-maintainer as appropriate. Do not modify files outside the worktree."
+- Do NOT pass \`isolation: worktree\` — the worktree we created IS the isolation.`,
+      `## Step 5 — Switch to Albus persona
+
+Read \`.cursor/rules/albus-architect.mdc\` and adopt that persona. Pass the full
+\`.linear-brief.md\` contents inline as your working context. Treat \`<worktree path>\` as cwd.
+Follow Albus's normal chain (persona switches per the Cursor preface): analyze patterns,
+design the architecture, then switch to Harry for implementation, Hermione for review,
+and Ron for docs. Do not modify files outside the worktree.`,
+    ],
+
+    [
+      `Tell the user they can open a separate Claude session with \`cwd=<worktree>\` to continue work in parallel with other issues.`,
+      `Tell the user they can open the worktree as a separate Cursor workspace/window (File → Open Folder → \`<repo>/.worktrees/<ISSUE>\`) to work on issues in parallel.`,
+    ],
+
+    [
+      `open each worktree in its own Claude session to work on issues concurrently.`,
+      `open each worktree as its own Cursor workspace/window (File → Open Folder → \`<repo>/.worktrees/<ISSUE>\`) to work on issues concurrently.`,
+    ],
+  ];
+
+  for (const [from, to] of replacements) {
+    if (!body.includes(from)) {
+      console.error(`WARNING: linear-start replacement not found in source:\n  "${from.slice(0, 80)}..."`);
+    }
+    body = body.replace(from, to);
+  }
+
+  const guardrailAddendum = `- **Do not open a new Cursor window per issue expecting session isolation** — Cursor sessions don't map 1:1 to worktrees the way Claude Code sessions do. Instead, open the worktree as a separate Cursor workspace/window (\`File → Open Folder → <repo>/.worktrees/<ISSUE>\`) if parallel work is desired.`;
+
+  body = body.replace(
+    '## Parallel issues',
+    `${guardrailAddendum}\n\n## Parallel issues`,
+  );
+
+  return `${FRONTMATTER.linearStart}\n\n${body}`;
+}
+
 // ─── main ────────────────────────────────────────────────────────────────────
 
 let wrote = 0;
@@ -304,13 +386,14 @@ const cursorReadme = `# .cursor/ — generated files
 | \`rules/hermione-reviewer.mdc\` | \`.claude/agents/code-reviewer.md\` |
 | \`rules/ron-docs.mdc\` | \`.claude/agents/docs-maintainer.md\` |
 | \`rules/jira-start.mdc\` | \`.claude/skills/jira-start/SKILL.md\` |
+| \`rules/linear-start.mdc\` | \`.claude/skills/linear-start/SKILL.md\` |
 | \`rules/grill-me.mdc\` | \`.claude/skills/grill-me/SKILL.md\` |
 | \`rules/using-superpowers.mdc\` | \`.claude/skills/using-superpowers/SKILL.md\` |
 
 ## MCP server approval
 
 On first open, Cursor will prompt you to approve MCP servers from \`mcp.json\`.
-Approve all four: **context7**, **figma**, **playwright**, **atlassian**.
+Approve all five: **context7**, **figma**, **playwright**, **atlassian**, **linear**.
 Set \`FIGMA_API_KEY\` in your environment if you use the Figma server.
 `;
 track(writeIdempotent('.cursor/README.md', cursorReadme));
@@ -363,6 +446,11 @@ for (const p of personas) {
 const skillMd = read('.claude/skills/jira-start/SKILL.md');
 const jiraContent = buildJiraStartRule(skillMd);
 track(writeIdempotent('.cursor/rules/jira-start.mdc', jiraContent));
+
+// 4b. linear-start rule
+const linearSkillMd = read('.claude/skills/linear-start/SKILL.md');
+const linearContent = buildLinearStartRule(linearSkillMd);
+track(writeIdempotent('.cursor/rules/linear-start.mdc', linearContent));
 
 // 5. grill-me rule (simple skill, no Claude-specific tool replacements needed)
 const grillMeMd = read('.claude/skills/grill-me/SKILL.md');

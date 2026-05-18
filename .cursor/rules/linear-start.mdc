@@ -1,0 +1,133 @@
+---
+description: "Kick off work on a Linear issue: prompt for issue ID + repo path, fetch via Linear MCP, create a git worktree at .worktrees/<ISSUE>, write a structured brief, then switch to the Albus persona. Trigger via @linear-start or phrases like 'start linear issue', 'work on ENG-123', 'new linear issue'."
+alwaysApply: false
+---
+
+# linear-start
+
+Kick off work on a Linear issue in an isolated worktree and delegate to the code-architect agent (Albus).
+
+## Preconditions
+
+Check before doing anything else. If any fail, stop and tell the user.
+
+1. **Linear MCP authenticated.** The `mcp__plugin_linear_linear__*` tools must be callable (e.g. `get_issue`, `list_teams`). If not connected, tell the user to run `/plugin` and authenticate the Linear plugin, then re-run the skill.
+2. **Target repo is a git repo.** `git -C <repo> rev-parse --is-inside-work-tree` must succeed.
+3. **Working tree of the main checkout is clean-ish.** Warn (don't block) on uncommitted changes in the main checkout; worktrees are independent so this is informational.
+
+## Step 1 — Collect inputs
+
+Ask the user in chat for:
+
+1. **Linear issue identifier** (e.g. `ENG-123`). Free text. Validate format `^[A-Z][A-Z0-9]*-\d+# linear-start
+
+Kick off work on a Linear issue in an isolated worktree and delegate to the code-architect agent (Albus).
+
+## Preconditions
+
+Check before doing anything else. If any fail, stop and tell the user.
+
+1. **Linear MCP authenticated.** The `mcp__plugin_linear_linear__*` tools must be callable (e.g. `get_issue`, `list_teams`). If not connected, tell the user to run `/plugin` and authenticate the Linear plugin, then re-run the skill.
+2. **Target repo is a git repo.** `git -C <repo> rev-parse --is-inside-work-tree` must succeed.
+3. **Working tree of the main checkout is clean-ish.** Warn (don't block) on uncommitted changes in the main checkout; worktrees are independent so this is informational.
+
+## Step 1 — Collect inputs
+
+ before proceeding. Do not guess.
+2. **Target repo absolute path**. Free text. Default to the current working directory if it's a git repo.
+
+Do not guess — always ask, even if an identifier appears elsewhere in context.
+
+## Step 2 — Fetch issue data via Linear MCP
+
+Call `mcp__plugin_linear_linear__get_issue` with the identifier. Also call `mcp__plugin_linear_linear__list_comments` for comments. Gather:
+
+- Title, description (full markdown, not truncated), state (status), priority, estimate
+- Labels, team, project, cycle, milestone
+- Assignee, creator, created/updated timestamps
+- Parent issue, sub-issues (id + title)
+- Related/linked issues and their relation type
+- Attachments: list titles and URLs (do not download unless needed) — use `mcp__plugin_linear_linear__get_attachment` only if necessary
+- Most recent ~10 comments (author, created, body) via `list_comments`
+- Canonical Linear URL (the `url` field on the issue)
+- Linked git branch name suggestion if Linear provides one (`branchName` field)
+
+If the issue does not exist or the MCP call fails, abort with the error message.
+
+## Step 3 — Normalize into a brief
+
+Render the fetched data into `<repo>/.worktrees/<ISSUE>/.linear-brief.md` with this structure:
+
+```markdown
+# <ISSUE>: <Title>
+
+- **State:** ...
+- **Priority:** ... | **Estimate:** ...
+- **Assignee:** ... | **Creator:** ...
+- **Team:** ... | **Project:** ... | **Cycle:** ...
+- **Labels:** ...
+- **Linear:** <url>
+
+## Description
+<full description markdown>
+
+## Parent / Sub-issues
+- Parent: <ID> — <title>
+- Sub: <ID> — <title>
+
+## Related Issues
+- <ID> (<relation>): <title>
+
+## Attachments
+- <title> — <url>
+
+## Recent Comments
+### <author> — <date>
+<body>
+...
+```
+
+(Write this file AFTER the worktree exists — see Step 4.)
+
+## Step 4 — Create the worktree
+
+1. Ensure `.worktrees/` is ignored: read `<repo>/.gitignore`; if `.worktrees/` is not present, append it on its own line. If `.gitignore` doesn't exist, create it with that single line.
+2. Derive the branch name: prefer Linear's suggested `branchName` if present; otherwise use the issue identifier verbatim (e.g. `ENG-123`). If the repo uses lowercase branch conventions (check recent branches via `git -C <repo> branch --format='%(refname:short)' | head -20`), lowercase it.
+3. Run: `git -C <repo> worktree add .worktrees/<ISSUE> -b <branch>`.
+4. If the branch already exists, ask the user in chat whether to (a) reuse it (`git worktree add .worktrees/<ISSUE> <branch>` without `-b`), (b) replace it, or (c) abort.
+5. If `.worktrees/<ISSUE>` already exists as a worktree, ask the user in chat whether to reuse it, remove+recreate, or abort.
+6. Now write the brief file from Step 3 into the worktree.
+
+## Step 5 — Switch to Albus persona
+
+Read `.cursor/rules/albus-architect.mdc` and adopt that persona. Pass the full
+`.linear-brief.md` contents inline as your working context. Treat `<worktree path>` as cwd.
+Follow Albus's normal chain (persona switches per the Cursor preface): analyze patterns,
+design the architecture, then switch to Harry for implementation, Hermione for review,
+and Ron for docs. Do not modify files outside the worktree.
+
+## Step 6 — Report back to the user
+
+Output a short summary:
+
+- Issue: `<ID>` — `<title>` (`<linear url>`)
+- Worktree: `<absolute path>`
+- Branch: `<branch>`
+- Brief: `<worktree>/.linear-brief.md`
+- Architect: kicked off (or: finished / handed off to …)
+
+Tell the user they can open the worktree as a separate Cursor workspace/window (File → Open Folder → `<repo>/.worktrees/<ISSUE>`) to work on issues in parallel.
+
+## Guardrails
+
+- **Do not start coding yourself.** Your job is Linear fetch → worktree → delegate. Implementation is Albus's chain.
+- **Do not edit anything outside `<repo>/.gitignore` and `<worktree>/.linear-brief.md`** during the skill run.
+- **Do not download attachments** unless the architect later asks for them.
+- **Do not change the Linear issue's state, assignee, or comments** during this skill — read-only on Linear's side.
+- **Never reuse a dirty worktree silently** — always prompt.
+
+- **Do not open a new Cursor window per issue expecting session isolation** — Cursor sessions don't map 1:1 to worktrees the way Claude Code sessions do. Instead, open the worktree as a separate Cursor workspace/window (`File → Open Folder → <repo>/.worktrees/<ISSUE>`) if parallel work is desired.
+
+## Parallel issues
+
+This skill makes no assumption of a single active issue. Each run produces an independent `.worktrees/<ID>` on its own branch. Run it as many times as needed; open each worktree as its own Cursor workspace/window (File → Open Folder → `<repo>/.worktrees/<ISSUE>`) to work on issues concurrently.

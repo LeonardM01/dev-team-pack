@@ -21,8 +21,16 @@
       "type": "http",
       "url": "https://mcp.atlassian.com/v1/sse"
     },
+    "linear": {
+      "type": "http",
+      "url": "https://mcp.linear.app/sse"
+    },
     "lean-ctx": {
       "command": "lean-ctx"
+    },
+    "XcodeBuildMCP": {
+      "command": "npx",
+      "args": ["-y", "xcodebuildmcp@latest", "mcp"]
     }
   }
 }

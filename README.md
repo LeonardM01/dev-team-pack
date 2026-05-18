@@ -103,23 +103,29 @@ Each agent has its own persistent memory under `.claude/agent-memory/<agent>/` (
 | **figma** | Read/write Figma designs, generate code from frames, Code Connect mappings. Requires `FIGMA_API_KEY` in env. |
 | **playwright** | Drive a real browser for end-to-end tests and UI verification. |
 | **atlassian** | Read Jira tickets (used by the `jira-start` skill). OAuth on first connect. |
+| **linear** | Read Linear issues (used by the `linear-start` skill). OAuth on first connect. |
 
-They're pre-approved via `.claude/settings.json` (`enabledMcpjsonServers`). On first launch, run `/mcp` to confirm all four are connected. Set `FIGMA_API_KEY` in your shell before launching Claude Code if you use the Figma server.
+They're pre-approved via `.claude/settings.json` (`enabledMcpjsonServers`). On first launch, run `/mcp` to confirm all five are connected. Set `FIGMA_API_KEY` in your shell before launching Claude Code if you use the Figma server.
+
+## The `linear-start` skill
+
+Same flow as `jira-start`, but sourced from Linear via the Linear MCP server. Entry point: `.claude/skills/linear-start/SKILL.md`. Trigger with `/linear-start` (or phrases like "work on ENG-123"). Produces `<worktree>/.linear-brief.md` and hands off to Albus.
 
 ## Usage
 
 In Claude Code:
 
 ```
-/jira-start
+/jira-start       # Jira ticket
+/linear-start     # Linear issue
 ```
 
-Answer the two prompts (ticket key + repo path). The skill does the rest and hands control to Albus.
+Answer the two prompts (issue ID + repo path). The skill does the rest and hands control to Albus.
 
 ## Using this repo in Cursor
 
 - Install [Cursor](https://cursor.sh).
-- On first open, Cursor will prompt to approve MCP servers from `.cursor/mcp.json` — approve all four (`context7`, `figma`, `playwright`, `atlassian`).
+- On first open, Cursor will prompt to approve MCP servers from `.cursor/mcp.json` — approve all five (`context7`, `figma`, `playwright`, `atlassian`, `linear`).
 - Set `FIGMA_API_KEY` in your environment if you use the Figma server.
 - Trigger the team: type `@albus-architect` for a direct kickoff, or `@jira-start` to run the Jira flow.
 - **Persona switching**: Cursor has no subagent primitive, so Albus explicitly "switches persona" mid-session by loading the next rule. This is intentional — follow the agent's announcements to know which persona is currently active.
@@ -166,7 +172,8 @@ git -C /path/to/repo branch -D <TICKET>
 .claude/
   agents/                         agent definitions (Albus, Harry, Hermione, Ron)
   agent-memory/<agent>/           persistent per-agent memory (versioned)
-  skills/jira-start/SKILL.md      the ticket kickoff playbook
+  skills/jira-start/SKILL.md      the Jira ticket kickoff playbook
+  skills/linear-start/SKILL.md    the Linear issue kickoff playbook
 .cursor/                          generated — do not edit by hand (run scripts/sync-cursor.mjs)
   mcp.json                        copy of .mcp.json for Cursor's MCP approval flow
   README.md                       notice that these files are generated
@@ -176,6 +183,7 @@ git -C /path/to/repo branch -D <TICKET>
     hermione-reviewer.mdc         Hermione persona rule
     ron-docs.mdc                  Ron persona rule
     jira-start.mdc                jira-start flow adapted for Cursor
+    linear-start.mdc              linear-start flow adapted for Cursor
 scripts/
   sync-cursor.mjs                 regenerates .cursor/ from .claude/ (idempotent)
 ```
