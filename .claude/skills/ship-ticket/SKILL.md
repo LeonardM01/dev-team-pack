@@ -12,7 +12,7 @@ Close the loop on a ticket started via `linear-start` or `jira-start`: push bran
 1. **CWD is in a worktree.** The current working directory must be (or be inside) a `.worktrees/<ID>/` directory containing either `.linear-brief.md` or `.jira-brief.md`. The brief file determines the tracker.
 2. **`gh` CLI authenticated.** `gh auth status` must succeed and the repo must have a GitHub remote.
 3. **Branch has commits ahead of base.** `git rev-list --count <base>..HEAD` must be > 0. Default base is `main`; if `main` does not exist, fall back to `master`.
-4. **Working tree clean.** If `git status --porcelain` is non-empty, use `AskUserQuestion` to offer: (a) commit everything with a user-provided message, (b) stash, (c) abort.
+4. **Working tree clean.** If `git status --porcelain` is non-empty, use `AskUserQuestion` to offer: (a) commit everything tracked + untracked with a user-provided message (use `git add -A && git commit -m "<msg>"` — safe because we are inside an isolated worktree), (b) stash everything (`git stash -u`), (c) abort.
 5. **Matching tracker MCP authenticated.** Linear path requires `mcp__plugin_linear_linear__*` tools; Jira path requires `mcp__claude_ai_Atlassian_Rovo__*` tools.
 
 If any precondition fails, stop and tell the user what to fix.
@@ -29,7 +29,7 @@ If any precondition fails, stop and tell the user what to fix.
 1. Run `git rev-parse --abbrev-ref --symbolic-full-name @{u}` to detect an upstream.
 2. If no upstream: `git push -u origin <current-branch>`.
 3. If upstream exists and local is ahead: `git push`.
-4. Never use `--force` or `--force-with-lease`.
+4. If `git push` is rejected (branch is behind or diverged), surface the git error to the user and abort the skill. Never auto-pull, never `--force`, never `--force-with-lease`.
 
 ## Step 3 — Generate summary artifact
 
@@ -51,13 +51,15 @@ Produce two pieces of output:
 Show the rendered summary + test plan to the user via `AskUserQuestion` with three options:
 
 - **Post as-is** — proceed to Step 4.
-- **Let me edit** — write the text to `.worktrees/<ID>/.ship-summary.md`, instruct the user to edit it in their editor and reply when done, then re-read the file and re-confirm.
+- **Let me edit** — write the rendered text to `.worktrees/<ID>/.ship-summary.md`, then call `AskUserQuestion` with options:
+  - `Done editing` — re-read the file from disk and proceed to a second confirmation prompt (`Post as-is` / `Edit again` / `Cancel`).
+  - `Cancel` — abort the skill with no remote or tracker side effects.
 - **Cancel** — abort. Do not push to remote a second time, do not create a PR.
 
 ## Step 4 — Open the PR
 
 1. Check for an existing PR for this branch: `gh pr view --json url,number 2>/dev/null`.
-2. If a PR exists, capture its URL and skip creation. Then use `AskUserQuestion` to ask whether to re-post the ticket comment (default: yes) and whether to re-run the status transition (default: yes).
+2. If a PR exists, capture its URL and skip creation. Then use `AskUserQuestion` to ask whether to re-post the ticket comment (default: yes). Use a separate `AskUserQuestion` to ask whether to re-run the status transition (default: yes).
 3. If no PR exists, create one with a minimal body:
    - Title: `<ISSUE>: <title>` (taken from the brief).
    - Body:
@@ -67,6 +69,7 @@ Show the rendered summary + test plan to the user via `AskUserQuestion` with thr
 
      Summary and test plan posted on the ticket.
      ```
+   - Use the remote that the branch's upstream points to (the same one Step 2 pushed to). The `gh` CLI will infer it from the current branch's upstream config; do not pass `--repo` unless cross-repo PRs are needed.
    - Command (use HEREDOC for the body):
      ```bash
      gh pr create --base <base> --head <branch> --title "<ISSUE>: <title>" --body "$(cat <<'EOF'
@@ -106,22 +109,29 @@ If posting fails, surface the error to the user and continue to Step 6 anyway �
 
 **Linear path:**
 
-1. Call `mcp__plugin_linear_linear__list_issue_statuses` for the issue's team.
-2. Filter statuses where `type === "review"`. Pick the first match.
-3. If already in a review-category state, skip silently.
-4. If exactly one match, call `mcp__plugin_linear_linear__save_issue` to set the new state.
-5. If multiple matches, prompt via `AskUserQuestion`.
-6. If no match, warn and skip.
+1. Re-fetch the issue's current state via `mcp__plugin_linear_linear__get_issue` (state may have drifted since `linear-start`).
+2. Call `mcp__plugin_linear_linear__list_issue_statuses` for the issue's team.
+3. Resolve the target state by, in order:
+   a. First status whose `name` matches `/review/i` (case-insensitive). If multiple, prefer one with `type === "started"`, then `type === "unstarted"`. If still ambiguous, prompt via `AskUserQuestion`.
+   b. If no name match, list all statuses with `type === "unstarted"` and prompt via `AskUserQuestion` to pick one. If only one exists, use it directly.
+   c. If neither (a) nor (b) yields a candidate, print a warning ("Could not resolve a review-stage status for team X; leaving status untouched") and skip.
+4. If the issue is already in the resolved state (or its current `name` already matches `/review/i`), skip silently.
+5. Otherwise, call `mcp__plugin_linear_linear__save_issue` with the new state id.
 
 **Jira path:**
 
-1. Call `mcp__claude_ai_Atlassian_Rovo__getTransitionsForJiraIssue`.
-2. Filter to transitions where `to.statusCategory.key === "indeterminate"` AND the transition or target name matches `/review/i`.
-3. If exactly one match, call `mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue`.
-4. If multiple matches, prompt via `AskUserQuestion` with the candidate list.
-5. If no match, warn and skip.
+1. Re-fetch the ticket's current status via `mcp__claude_ai_Atlassian_Rovo__getJiraIssue` (status may have drifted since `jira-start`).
+2. Call `mcp__claude_ai_Atlassian_Rovo__getTransitionsForJiraIssue`.
+3. Resolve the target transition by, in order:
+   a. First transition where `to.statusCategory.key === "indeterminate"` AND the transition or target name matches `/review|qa|code\s*review|pr/i`. If multiple, prompt via `AskUserQuestion`.
+   b. If no name match, list ALL `indeterminate`-category transitions and prompt via `AskUserQuestion`. The user may also pick "skip".
+   c. If no `indeterminate` transitions exist at all, print a warning and skip.
+4. If the ticket is already in a status whose name matches `/review/i`, skip silently.
+5. Otherwise, call `mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue` with the chosen transition id.
 
 Transition failures never block earlier work — by this point the PR exists and the comment is posted.
+
+Transitions are idempotent — re-running this skill on a branch where the transition already happened will simply skip via the "already in review state" check. If a transition partially succeeds (e.g. comment posted, transition errored), re-run the skill safely.
 
 ## Step 7 — Report
 
