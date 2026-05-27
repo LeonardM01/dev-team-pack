@@ -40,6 +40,20 @@ Call `mcp__plugin_linear_linear__get_issue` with the identifier. Also call `mcp_
 
 If the issue does not exist or the MCP call fails, abort with the error message.
 
+## Step 2.5 — Transition issue to a started state
+
+Move the issue into Linear's `started` workflow category so it shows as in-progress on boards. This runs after fetch and before worktree creation; failures here warn but do not block.
+
+1. Call `mcp__plugin_linear_linear__list_issue_statuses` with the issue's team id (from the issue payload in Step 2).
+2. Filter the returned statuses to those where `type === "started"`. Pick the first match.
+3. If the issue's current state already has `type === "started"`, skip this step silently.
+4. If exactly one started-category status is resolved, update the issue:
+   - Call `mcp__plugin_linear_linear__save_issue` with the issue id and the resolved state id.
+5. If multiple started-category statuses exist, use `AskUserQuestion` to let the user pick.
+6. If no started-category status exists, print a warning ("Could not resolve a 'started' status for team X; leaving issue status untouched") and continue.
+
+Never block worktree creation on a tracker-side failure.
+
 ## Step 3 — Normalize into a brief
 
 Render the fetched data into `<repo>/.worktrees/<ISSUE>/.linear-brief.md` with this structure:
@@ -110,7 +124,7 @@ Tell the user they can open a separate Claude session with `cwd=<worktree>` to c
 - **Do not start coding yourself.** Your job is Linear fetch → worktree → delegate. Implementation is Albus's chain.
 - **Do not edit anything outside `<repo>/.gitignore` and `<worktree>/.linear-brief.md`** during the skill run.
 - **Do not download attachments** unless the architect later asks for them.
-- **Do not change the Linear issue's state, assignee, or comments** during this skill — read-only on Linear's side.
+- **Tracker writes are scoped to a single status transition** (to a `started`-category state). Do not change assignee, description, comments, or any other field on the Linear issue during this skill.
 - **Never reuse a dirty worktree silently** — always prompt.
 
 ## Parallel issues
