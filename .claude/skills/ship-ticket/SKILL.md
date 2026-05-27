@@ -110,23 +110,24 @@ If posting fails, surface the error to the user and continue to Step 6 anyway �
 **Linear path:**
 
 1. Re-fetch the issue's current state via `mcp__plugin_linear_linear__get_issue` (state may have drifted since `linear-start`).
-2. Call `mcp__plugin_linear_linear__list_issue_statuses` for the issue's team.
-3. Resolve the target state by, in order:
+2. If the issue's current state `name` already matches `/review/i`, skip silently — do not list statuses, do not prompt.
+3. Call `mcp__plugin_linear_linear__list_issue_statuses` for the issue's team.
+4. Resolve the target state by, in order:
    a. First status whose `name` matches `/review/i` (case-insensitive). If multiple, prefer one with `type === "started"`, then `type === "unstarted"`. If still ambiguous, prompt via `AskUserQuestion`.
-   b. If no name match, list all statuses with `type === "unstarted"` and prompt via `AskUserQuestion` to pick one. If only one exists, use it directly.
+   b. If no name match, list all statuses with `type === "started"` (excluding the issue's current state) and prompt via `AskUserQuestion` to pick one. If that yields no candidates, fall back to all non-terminal statuses (i.e. exclude `type === "completed"` and `type === "canceled"`). If only one candidate exists, use it directly.
    c. If neither (a) nor (b) yields a candidate, print a warning ("Could not resolve a review-stage status for team X; leaving status untouched") and skip.
-4. If the issue is already in the resolved state (or its current `name` already matches `/review/i`), skip silently.
-5. Otherwise, call `mcp__plugin_linear_linear__save_issue` with the new state id.
+5. If the resolved state id equals the issue's current state id, skip silently.
+6. Otherwise, call `mcp__plugin_linear_linear__save_issue` with the new state id.
 
 **Jira path:**
 
 1. Re-fetch the ticket's current status via `mcp__claude_ai_Atlassian_Rovo__getJiraIssue` (status may have drifted since `jira-start`).
-2. Call `mcp__claude_ai_Atlassian_Rovo__getTransitionsForJiraIssue`.
-3. Resolve the target transition by, in order:
+2. If the ticket's current status `name` already matches `/review/i`, skip silently — do not list transitions, do not prompt.
+3. Call `mcp__claude_ai_Atlassian_Rovo__getTransitionsForJiraIssue`.
+4. Resolve the target transition by, in order:
    a. First transition where `to.statusCategory.key === "indeterminate"` AND the transition or target name matches `/review|qa|code\s*review|pr/i`. If multiple, prompt via `AskUserQuestion`.
    b. If no name match, list ALL `indeterminate`-category transitions and prompt via `AskUserQuestion`. The user may also pick "skip".
    c. If no `indeterminate` transitions exist at all, print a warning and skip.
-4. If the ticket is already in a status whose name matches `/review/i`, skip silently.
 5. Otherwise, call `mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue` with the chosen transition id.
 
 Transition failures never block earlier work — by this point the PR exists and the comment is posted.
