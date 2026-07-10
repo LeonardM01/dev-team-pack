@@ -53,6 +53,20 @@ Call the Atlassian MCP tool(s) to retrieve the issue. Gather:
 
 If the ticket does not exist or the MCP call fails, abort with the error message.
 
+## Step 2.5 — Transition ticket to a started state
+
+Move the ticket into Jira's `indeterminate` (in-progress) status category. Runs after fetch and before worktree creation; failures warn but do not block.
+
+1. Call `mcp__claude_ai_Atlassian_Rovo__getTransitionsForJiraIssue` with the ticket key.
+2. Filter the returned transitions to those where `to.statusCategory.key === "indeterminate"`. Pick the first match.
+3. If the ticket's current status already has `statusCategory.key === "indeterminate"`, skip this step silently.
+4. If exactly one matching transition exists, apply it:
+   - Call `mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue` with the ticket key and transition id.
+5. If multiple matching transitions exist, use `AskUserQuestion` to let the user pick.
+6. If no matching transition exists, print a warning ("Could not resolve an in-progress transition for ticket X; leaving status untouched") and continue.
+
+Never block worktree creation on a tracker-side failure.
+
 ## Step 3 — Normalize into a brief
 
 Render the fetched data into `<repo>/.worktrees/<TICKET>/.jira-brief.md` with this structure:
@@ -117,6 +131,7 @@ Tell the user they can open the worktree as a separate Cursor workspace/window (
 
 ## Guardrails
 
+- **Tracker writes are scoped to a single status transition** (to an `indeterminate` / in-progress status category). Do not change assignee, description, comments, or any other field on the Jira ticket during this skill.
 - **Do not start coding yourself.** Your job is Jira fetch → worktree → delegate. Implementation is Albus's chain.
 - **Do not edit anything outside `<repo>/.gitignore` and `<worktree>/.jira-brief.md`** during the skill run.
 - **Do not download attachments** unless the architect later asks for them.
