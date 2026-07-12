@@ -86,14 +86,15 @@ lists in chat; \`@rule\` mentions instead of skill invocation; file reads instea
 
 // ─── shared memory section appended to every persona rule (§3.6) ────────────
 
-function memorySection(persona, claudeAgentFile) {
+function memorySection(persona) {
   return `
 ## Persistent knowledge base
 
 You share a persistent, versioned memory with the Claude Code version of this persona at
 \`.claude/agent-memory/${persona}/\`. **Read from it** whenever a memory seems relevant.
-**Writing to it from Cursor is allowed but must follow the same schema** (see
-\`.claude/agents/${claudeAgentFile}\` for the "Persistent Agent Memory" section). Prefer
+**Writing to it from Cursor is allowed but must follow the same schema**: one memory per
+file with \`name\`/\`description\`/\`type\` frontmatter (type: user, feedback, project, or
+reference), indexed by a one-line pointer in \`MEMORY.md\`. Prefer
 appending over editing. Commits to this directory are how the team accumulates knowledge
 across both tools.
 `;
@@ -406,7 +407,6 @@ const personas = [
     frontmatter: FRONTMATTER.albus,
     footer: FOOTERS.albus,
     memPersona: 'code-architect',
-    memFile: 'code-architect.md',
   },
   {
     source: '.claude/agents/fullstack-developer.md',
@@ -414,7 +414,6 @@ const personas = [
     frontmatter: FRONTMATTER.harry,
     footer: FOOTERS.harry,
     memPersona: 'fullstack-developer',
-    memFile: 'fullstack-developer.md',
   },
   {
     source: '.claude/agents/code-reviewer.md',
@@ -422,7 +421,6 @@ const personas = [
     frontmatter: FRONTMATTER.hermione,
     footer: FOOTERS.hermione,
     memPersona: 'code-reviewer',
-    memFile: 'code-reviewer.md',
   },
   {
     source: '.claude/agents/docs-maintainer.md',
@@ -430,14 +428,13 @@ const personas = [
     frontmatter: FRONTMATTER.ron,
     footer: FOOTERS.ron,
     memPersona: 'docs-maintainer',
-    memFile: 'docs-maintainer.md',
   },
 ];
 
 for (const p of personas) {
   const raw = read(p.source);
   const body = stripClaudeFrontmatter(raw);
-  const mem = memorySection(p.memPersona, p.memFile);
+  const mem = memorySection(p.memPersona);
   const content = buildPersonaRule(p.frontmatter, body, p.footer, mem);
   track(writeIdempotent(p.target, content));
 }
