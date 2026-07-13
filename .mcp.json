@@ -7,7 +7,11 @@
     "figma": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "figma-developer-mcp", "--stdio"],
+      "args": [
+        "-y",
+        "figma-developer-mcp",
+        "--stdio"
+      ],
       "env": {
         "FIGMA_API_KEY": "${FIGMA_API_KEY}"
       }
@@ -15,11 +19,14 @@
     "playwright": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"]
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ]
     },
     "atlassian": {
       "type": "http",
-      "url": "https://mcp.atlassian.com/v1/sse"
+      "url": "https://mcp.atlassian.com/v1/mcp/authv2"
     },
     "linear": {
       "type": "http",
@@ -30,7 +37,11 @@
     },
     "XcodeBuildMCP": {
       "command": "npx",
-      "args": ["-y", "xcodebuildmcp@latest", "mcp"]
+      "args": [
+        "-y",
+        "xcodebuildmcp@latest",
+        "mcp"
+      ]
     }
   }
 }
