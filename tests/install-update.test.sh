@@ -288,6 +288,57 @@ test_claude_md_missing_end_marker_leaves_file_untouched() {
   teardown_sandbox
 }
 
+test_claude_md_update_preserves_single_trailing_blank_line() {
+  setup_sandbox
+  run_install
+  {
+    cat "$TARGET/CLAUDE.md"
+    printf 'after1\n\n'
+  } > "$SANDBOX/claude_md_seed.txt"
+  cp "$SANDBOX/claude_md_seed.txt" "$TARGET/CLAUDE.md"
+  printf 'v2 pack docs\n' > "$FIXTURE/CLAUDE.md"
+  fixture_commit v2
+  run_install
+  printf '<!-- dev-team-pack:begin -->\n# Dev Team Pack\nv2 pack docs\n<!-- dev-team-pack:end -->\nafter1\n\n' \
+    > "$SANDBOX/claude_md_expected.txt"
+  assert_files_identical "single trailing blank line at EOF is preserved, not dropped" \
+    "$TARGET/CLAUDE.md" "$SANDBOX/claude_md_expected.txt"
+  teardown_sandbox
+}
+
+test_claude_md_update_preserves_two_trailing_blank_lines() {
+  setup_sandbox
+  run_install
+  {
+    cat "$TARGET/CLAUDE.md"
+    printf 'after1\n\n\n'
+  } > "$SANDBOX/claude_md_seed.txt"
+  cp "$SANDBOX/claude_md_seed.txt" "$TARGET/CLAUDE.md"
+  printf 'v2 pack docs\n' > "$FIXTURE/CLAUDE.md"
+  fixture_commit v2
+  run_install
+  printf '<!-- dev-team-pack:begin -->\n# Dev Team Pack\nv2 pack docs\n<!-- dev-team-pack:end -->\nafter1\n\n\n' \
+    > "$SANDBOX/claude_md_expected.txt"
+  assert_files_identical "two trailing blank lines at EOF are preserved, loss does not compound" \
+    "$TARGET/CLAUDE.md" "$SANDBOX/claude_md_expected.txt"
+  teardown_sandbox
+}
+
+test_claude_md_update_preserves_missing_trailing_newline_when_end_marker_is_last_line() {
+  setup_sandbox
+  run_install
+  printf '%s' "$(cat "$TARGET/CLAUDE.md")" > "$SANDBOX/claude_md_seed.txt"
+  cp "$SANDBOX/claude_md_seed.txt" "$TARGET/CLAUDE.md"
+  printf 'v2 pack docs\n' > "$FIXTURE/CLAUDE.md"
+  fixture_commit v2
+  run_install
+  printf '<!-- dev-team-pack:begin -->\n# Dev Team Pack\nv2 pack docs\n<!-- dev-team-pack:end -->' \
+    > "$SANDBOX/claude_md_expected.txt"
+  assert_files_identical "end marker as last line with no trailing newline and nothing after stays newline-free" \
+    "$TARGET/CLAUDE.md" "$SANDBOX/claude_md_expected.txt"
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
@@ -310,4 +361,7 @@ test_claude_md_block_update_preserves_content_before_and_after
 test_claude_md_marker_substring_in_prose_is_not_treated_as_marker
 test_claude_md_update_preserves_missing_trailing_newline
 test_claude_md_missing_end_marker_leaves_file_untouched
+test_claude_md_update_preserves_single_trailing_blank_line
+test_claude_md_update_preserves_two_trailing_blank_lines
+test_claude_md_update_preserves_missing_trailing_newline_when_end_marker_is_last_line
 finish

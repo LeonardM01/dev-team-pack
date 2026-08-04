@@ -1181,15 +1181,20 @@ merge_claude_md() {
     fi
     printf '%s\n' "$block"
     if [ "$end_line" -lt "$total_lines" ]; then
-      local tail_content
-      tail_content="$(sed -n "$((end_line + 1)),\$p" "$target_md")"
-      if [ "$file_ends_with_newline" -eq 1 ]; then
-        printf '%s\n' "$tail_content"
-      else
-        printf '%s' "$tail_content"
-      fi
+      sed -n "$((end_line + 1)),\$p" "$target_md"
     fi
   } > "$tmp"
+
+  if [ "$file_ends_with_newline" -eq 0 ]; then
+    local tmp_size tmp_last_byte
+    tmp_size="$(wc -c < "$tmp" | tr -d ' ')"
+    tmp_last_byte="$(tail -c1 "$tmp")"
+    if [ "$tmp_size" -gt 0 ] && [ -z "$tmp_last_byte" ]; then
+      head -c "$((tmp_size - 1))" "$tmp" > "$tmp.trimmed"
+      mv "$tmp.trimmed" "$tmp"
+    fi
+  fi
+
   cp "$tmp" "$target_md"
   record_state_entry "$key" "$pack_hash"
   N_UPDATED=$((N_UPDATED + 1))
