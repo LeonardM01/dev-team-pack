@@ -39,13 +39,11 @@ test_state_file_written_on_install() {
   assert_eq "state version is head"    "$(state_field version)"       "$head"
   assert_eq "state versionSource git"  "$(state_field versionSource)" "git"
   assert_eq "state ref is main"        "$(state_field ref)"           "main"
-  # re-enabled in Task 6: record_state_entry is not called until Task 6, so
-  # "files" is written as an empty object and this assertion cannot pass yet.
-  # if state_json | grep -q '"\.claude/agents/code-reviewer\.md"'; then
-  #   ok "state records file hash"
-  # else
-  #   fail "state records file hash" "key missing from state"
-  # fi
+  if state_json | grep -q '"\.claude/agents/code-reviewer\.md"'; then
+    ok "state records file hash"
+  else
+    fail "state records file hash" "key missing from state"
+  fi
   teardown_sandbox
 }
 
@@ -84,6 +82,87 @@ test_double_dash_rejects_extra_positional() {
   teardown_sandbox
 }
 
+test_untouched_file_is_updated() {
+  setup_sandbox
+  run_install
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_file_is "untouched file updated" \
+    "$TARGET/.claude/agents/code-reviewer.md" "v2 reviewer"
+  assert_out_contains "reports update" "updated"
+  teardown_sandbox
+}
+
+test_locally_edited_file_is_kept() {
+  setup_sandbox
+  run_install
+  printf 'mine\n' > "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v2 architect\n' > "$FIXTURE/.claude/agents/code-architect.md"
+  fixture_commit v2
+  run_install
+  assert_file_is "local edit kept when upstream unchanged" \
+    "$TARGET/.claude/agents/code-reviewer.md" "mine"
+  assert_file_is "sibling still updated" \
+    "$TARGET/.claude/agents/code-architect.md" "v2 architect"
+  teardown_sandbox
+}
+
+test_conflict_is_reported_not_overwritten() {
+  setup_sandbox
+  run_install
+  printf 'mine\n' > "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_file_is "conflict preserves local" \
+    "$TARGET/.claude/agents/code-reviewer.md" "mine"
+  assert_out_contains "conflict reported" "conflict"
+  teardown_sandbox
+}
+
+test_force_overwrites_conflict() {
+  setup_sandbox
+  run_install
+  printf 'mine\n' > "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install --force
+  assert_file_is "force overwrites conflict" \
+    "$TARGET/.claude/agents/code-reviewer.md" "v2 reviewer"
+  teardown_sandbox
+}
+
+test_deleted_file_stays_deleted() {
+  setup_sandbox
+  run_install
+  rm "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_file_absent "deleted file not resurrected" \
+    "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v3 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v3
+  run_install
+  assert_file_absent "deletion sticky across two updates" \
+    "$TARGET/.claude/agents/code-reviewer.md"
+  teardown_sandbox
+}
+
+test_adopted_file_is_updated_on_next_run() {
+  setup_sandbox
+  mkdir -p "$TARGET/.claude/agents"
+  printf 'mine\n' > "$TARGET/.claude/agents/code-reviewer.md"
+  run_install
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_file_is "baseline-adopted file updates on next run" \
+    "$TARGET/.claude/agents/code-reviewer.md" "v2 reviewer"
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
@@ -93,4 +172,10 @@ test_second_run_reports_up_to_date
 test_force_bypasses_up_to_date
 test_target_positional_still_works_after_flags
 test_double_dash_rejects_extra_positional
+test_untouched_file_is_updated
+test_locally_edited_file_is_kept
+test_conflict_is_reported_not_overwritten
+test_force_overwrites_conflict
+test_deleted_file_stays_deleted
+test_adopted_file_is_updated_on_next_run
 finish

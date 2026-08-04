@@ -107,6 +107,13 @@ STATE_HAS_TOOLS=0
 STATE_HAS_MCPS=0
 STATE_SCHEMA_SUPPORTED=1
 
+N_ADDED=0
+N_UPDATED=0
+N_KEPT=0
+N_CURRENT=0
+N_CONFLICT=0
+LAST_ACTION=""
+
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   C_RESET=$'\033[0m'
   C_DIM=$'\033[2m'
@@ -242,6 +249,7 @@ make_workdir() {
   cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
   trap cleanup EXIT INT TERM HUP
   WORK="$(mktemp -d)"
+  : > "$WORK/conflicts.txt"
 }
 
 fetch_pack() {
@@ -961,6 +969,59 @@ decide_file_action() {
   fi
 }
 
+apply_file_action() {
+  local rel="$1" dest="$2" pack="$3"
+  local action rec
+  action="$(decide_file_action "$rel" "$dest" "$pack")"
+  rec="$(state_hash_for "$rel")"
+
+  case "$action" in
+    add)
+      mkdir -p "$(dirname "$dest")"
+      cp "$pack" "$dest"
+      record_state_entry "$rel" "$(sha256_file "$dest")"
+      N_ADDED=$((N_ADDED + 1))
+      ;;
+    update)
+      cp "$pack" "$dest"
+      record_state_entry "$rel" "$(sha256_file "$dest")"
+      N_UPDATED=$((N_UPDATED + 1))
+      log "updated  $rel"
+      ;;
+    conflict)
+      if [ "$FORCE" = "1" ]; then
+        cp "$pack" "$dest"
+        record_state_entry "$rel" "$(sha256_file "$dest")"
+        N_UPDATED=$((N_UPDATED + 1))
+        log "updated  $rel (forced over conflict)"
+      else
+        record_state_entry "$rel" "$rec"
+        N_CONFLICT=$((N_CONFLICT + 1))
+        printf '%s\n' "$rel" >> "$WORK/conflicts.txt"
+        log "conflict $rel (modified locally, changed upstream)"
+      fi
+      ;;
+    keep-local)
+      record_state_entry "$rel" "$rec"
+      N_KEPT=$((N_KEPT + 1))
+      ;;
+    current)
+      record_state_entry "$rel" "$rec"
+      N_CURRENT=$((N_CURRENT + 1))
+      ;;
+    skip-deleted)
+      record_state_entry "$rel" "$rec"
+      ;;
+    keep-untracked)
+      if [ "$MODE" = "install" ]; then
+        record_state_entry "$rel" "$(sha256_file "$dest")"
+      fi
+      N_KEPT=$((N_KEPT + 1))
+      ;;
+  esac
+  LAST_ACTION="$action"
+}
+
 merge_claude_dir() {
   if ! printf ' %s ' "$SELECTED_TOOLS" | grep -q ' claude '; then
     STEP_STATUS=skip
@@ -971,7 +1032,7 @@ merge_claude_dir() {
   local src_base="$WORK/pack/.claude"
   [ -d "$src_base" ] || { STEP_STATUS=skip; log "no .claude/ in pack"; return 0; }
 
-  local added=0 kept=0 preserved=0
+  local preserved=0
 
   while IFS= read -r -d '' src_file; do
     local rel="${src_file#"$src_base/"}"
@@ -985,17 +1046,12 @@ merge_claude_dir() {
     fi
 
     local dest="$TARGET/.claude/$rel"
-    if [ -f "$dest" ]; then
-      kept=$((kept + 1))
-    else
-      mkdir -p "$(dirname "$dest")"
-      cp "$src_file" "$dest"
-      added=$((added + 1))
-    fi
+    apply_file_action ".claude/$rel" "$dest" "$src_file"
   done < <(find "$src_base" -type f -print0)
 
-  log "added $added · existing kept $kept · local settings preserved $preserved"
-  [ "$added" -gt 0 ] || STEP_STATUS=skip
+  log "added $N_ADDED · updated $N_UPDATED · kept $N_KEPT · conflicts $N_CONFLICT · local settings preserved $preserved"
+  if [ "$N_ADDED" -eq 0 ] && [ "$N_UPDATED" -eq 0 ]; then STEP_STATUS=skip; fi
+  if [ "$N_CONFLICT" -gt 0 ]; then STEP_STATUS=warn; fi
 }
 
 merge_cursor_dir() {
@@ -1012,22 +1068,15 @@ merge_cursor_dir() {
     return 0
   fi
 
-  local added=0 kept=0
-
   while IFS= read -r -d '' src_file; do
     local rel="${src_file#"$src_base/"}"
     local dest="$TARGET/.cursor/$rel"
-    if [ -f "$dest" ]; then
-      kept=$((kept + 1))
-    else
-      mkdir -p "$(dirname "$dest")"
-      cp "$src_file" "$dest"
-      added=$((added + 1))
-    fi
+    apply_file_action ".cursor/$rel" "$dest" "$src_file"
   done < <(find "$src_base" -type f -print0)
 
-  log "added $added · existing kept $kept"
-  [ "$added" -gt 0 ] || STEP_STATUS=skip
+  log "added $N_ADDED · updated $N_UPDATED · kept $N_KEPT · conflicts $N_CONFLICT"
+  if [ "$N_ADDED" -eq 0 ] && [ "$N_UPDATED" -eq 0 ]; then STEP_STATUS=skip; fi
+  if [ "$N_CONFLICT" -gt 0 ]; then STEP_STATUS=warn; fi
 }
 
 merge_claude_md() {
@@ -1068,13 +1117,13 @@ copy_mcp_json() {
   local src="$WORK/pack/.mcp.json"
   local dest="$TARGET/.mcp.json"
   [ -f "$src" ] || { STEP_STATUS=skip; log "no .mcp.json in pack"; return 0; }
-  if [ -f "$dest" ]; then
-    log ".mcp.json already exists (existing wins)"
-    STEP_STATUS=skip
-  else
-    cp "$src" "$dest"
-    log "wrote .mcp.json"
-  fi
+  apply_file_action ".mcp.json" "$dest" "$src"
+  case "$LAST_ACTION" in
+    add)      log "wrote .mcp.json" ;;
+    update)   log "updated .mcp.json" ;;
+    conflict) log ".mcp.json conflict (modified locally, changed upstream)"; STEP_STATUS=warn ;;
+    *)        log ".mcp.json unchanged"; STEP_STATUS=skip ;;
+  esac
 }
 
 run_env_setup() {
