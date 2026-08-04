@@ -179,6 +179,79 @@ test_conflict_in_one_step_does_not_warn_other_steps() {
   teardown_sandbox
 }
 
+test_claude_md_block_updates_preserving_user_content() {
+  setup_sandbox
+  run_install
+  printf '\n\n# My own notes\n' >> "$TARGET/CLAUDE.md"
+  printf 'v2 pack docs\n' > "$FIXTURE/CLAUDE.md"
+  fixture_commit v2
+  run_install
+  if grep -q 'v2 pack docs' "$TARGET/CLAUDE.md"; then
+    ok "CLAUDE.md block updated"
+  else
+    fail "CLAUDE.md block updated" "block still at v1"
+  fi
+  if grep -q '# My own notes' "$TARGET/CLAUDE.md"; then
+    ok "content outside markers preserved"
+  else
+    fail "content outside markers preserved" "user content lost"
+  fi
+  if ! grep -q 'v1 pack docs' "$TARGET/CLAUDE.md"; then
+    ok "old block content removed"
+  else
+    fail "old block content removed" "v1 text still present"
+  fi
+  teardown_sandbox
+}
+
+test_edited_claude_md_block_conflicts() {
+  setup_sandbox
+  run_install
+  perl -0pi -e 's/v1 pack docs/hand edited/' "$TARGET/CLAUDE.md"
+  printf 'v2 pack docs\n' > "$FIXTURE/CLAUDE.md"
+  fixture_commit v2
+  run_install
+  if grep -q 'hand edited' "$TARGET/CLAUDE.md"; then
+    ok "edited block preserved on conflict"
+  else
+    fail "edited block preserved on conflict" "block was overwritten"
+  fi
+  teardown_sandbox
+}
+
+test_claude_md_block_update_preserves_content_before_and_after() {
+  setup_sandbox
+  run_install
+  local orig; orig="$(cat "$TARGET/CLAUDE.md")"
+  printf '# Before notes\nsome preamble\n\n%s' "$orig" > "$TARGET/CLAUDE.md.tmp"
+  mv "$TARGET/CLAUDE.md.tmp" "$TARGET/CLAUDE.md"
+  printf '\n\n# After notes\ntrailing content\n' >> "$TARGET/CLAUDE.md"
+  printf 'v2 pack docs\n' > "$FIXTURE/CLAUDE.md"
+  fixture_commit v2
+  run_install
+  if grep -q 'v2 pack docs' "$TARGET/CLAUDE.md"; then
+    ok "block updated with content on both sides"
+  else
+    fail "block updated with content on both sides" "block still at v1"
+  fi
+  if grep -q '# Before notes' "$TARGET/CLAUDE.md" && grep -q 'some preamble' "$TARGET/CLAUDE.md"; then
+    ok "content before markers preserved byte-for-byte"
+  else
+    fail "content before markers preserved byte-for-byte" "preamble lost"
+  fi
+  if grep -q '# After notes' "$TARGET/CLAUDE.md" && grep -q 'trailing content' "$TARGET/CLAUDE.md"; then
+    ok "content after markers preserved byte-for-byte"
+  else
+    fail "content after markers preserved byte-for-byte" "trailing content lost"
+  fi
+  if ! grep -q 'v1 pack docs' "$TARGET/CLAUDE.md"; then
+    ok "old block content removed with content on both sides"
+  else
+    fail "old block content removed with content on both sides" "v1 text still present"
+  fi
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
@@ -195,4 +268,7 @@ test_force_overwrites_conflict
 test_deleted_file_stays_deleted
 test_adopted_file_is_updated_on_next_run
 test_conflict_in_one_step_does_not_warn_other_steps
+test_claude_md_block_updates_preserving_user_content
+test_edited_claude_md_block_conflicts
+test_claude_md_block_update_preserves_content_before_and_after
 finish

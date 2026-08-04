@@ -1082,6 +1082,18 @@ merge_cursor_dir() {
   if [ "$N_CONFLICT" -gt "$n_conflict0" ]; then STEP_STATUS=warn; fi
 }
 
+claude_md_block() {
+  awk '
+    /^<!-- dev-team-pack:begin -->$/ { inblock = 1; next }
+    /^<!-- dev-team-pack:end -->$/   { inblock = 0; next }
+    inblock { print }
+  ' "$1"
+}
+
+claude_md_block_hash() {
+  claude_md_block "$1" | sha256_stdin
+}
+
 merge_claude_md() {
   if ! printf ' %s ' "$SELECTED_TOOLS" | grep -q ' claude '; then
     STEP_STATUS=skip
@@ -1093,27 +1105,77 @@ merge_claude_md() {
   local target_md="$TARGET/CLAUDE.md"
   local begin_marker="<!-- dev-team-pack:begin -->"
   local end_marker="<!-- dev-team-pack:end -->"
+  local key="CLAUDE.md#dev-team-pack"
 
   [ -f "$pack_md" ] || { STEP_STATUS=skip; log "no CLAUDE.md in pack"; return 0; }
 
-  local block
-  block="$(printf '%s\n# Dev Team Pack\n%s\n%s' \
-    "$begin_marker" "$(cat "$pack_md")" "$end_marker")"
+  local body block pack_hash
+  body="$(printf '# Dev Team Pack\n%s' "$(cat "$pack_md")")"
+  block="$(printf '%s\n%s\n%s' "$begin_marker" "$body" "$end_marker")"
+  pack_hash="$(printf '%s\n' "$body" | sha256_stdin || true)"
 
   if [ ! -f "$target_md" ]; then
     printf '%s\n' "$block" > "$target_md"
+    record_state_entry "$key" "$pack_hash"
     log "created CLAUDE.md with dev-team block"
     return 0
   fi
 
-  if grep -qxF "$begin_marker" "$target_md"; then
-    log "dev-team-pack block already present"
+  if ! grep -qxF "$begin_marker" "$target_md"; then
+    printf '\n\n---\n\n%s\n' "$block" >> "$target_md"
+    record_state_entry "$key" "$pack_hash"
+    log "appended dev-team block to existing CLAUDE.md"
+    return 0
+  fi
+
+  local rec cur
+  rec="$(state_hash_for "$key" || true)"
+  cur="$(claude_md_block_hash "$target_md" || true)"
+
+  if [ -z "$rec" ]; then
+    if [ "$MODE" = "install" ]; then
+      record_state_entry "$key" "$cur"
+      log "adopted existing dev-team block"
+    fi
     STEP_STATUS=skip
     return 0
   fi
 
-  printf '\n\n---\n\n%s\n' "$block" >> "$target_md"
-  log "appended dev-team block to existing CLAUDE.md"
+  if [ "$cur" = "$pack_hash" ]; then
+    record_state_entry "$key" "$rec"
+    STEP_STATUS=skip
+    log "dev-team block already current"
+    return 0
+  fi
+
+  if [ "$cur" != "$rec" ] && [ "$FORCE" != "1" ]; then
+    record_state_entry "$key" "$rec"
+    N_CONFLICT=$((N_CONFLICT + 1))
+    printf '%s\n' "$key" >> "$WORK/conflicts.txt"
+    STEP_STATUS=warn
+    log "conflict CLAUDE.md block (edited locally, changed upstream)"
+    return 0
+  fi
+
+  local tmp="$WORK/claude_md_new"
+  local begin_line end_line total_lines
+  begin_line="$(grep -n -F -m1 "$begin_marker" "$target_md" | cut -d: -f1)"
+  end_line="$(grep -n -F -m1 "$end_marker" "$target_md" | cut -d: -f1)"
+  total_lines="$(wc -l < "$target_md" | tr -d ' ')"
+
+  {
+    if [ "$begin_line" -gt 1 ]; then
+      sed -n "1,$((begin_line - 1))p" "$target_md"
+    fi
+    printf '%s\n' "$block"
+    if [ "$end_line" -lt "$total_lines" ]; then
+      sed -n "$((end_line + 1)),\$p" "$target_md"
+    fi
+  } > "$tmp"
+  cp "$tmp" "$target_md"
+  record_state_entry "$key" "$pack_hash"
+  N_UPDATED=$((N_UPDATED + 1))
+  log "updated dev-team block in CLAUDE.md"
 }
 
 copy_mcp_json() {
