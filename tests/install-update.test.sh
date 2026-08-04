@@ -372,6 +372,32 @@ json.dump(d, open(sf, "w"), indent=2)
   teardown_sandbox
 }
 
+test_mcp_selection_explicit_empty_is_reused_not_defaulted() {
+  setup_sandbox
+  DEV_TEAM_REPO="$FIXTURE" DEV_TEAM_REF=main DEV_TEAM_MCPS=none NO_COLOR=1 \
+    bash "$REPO_ROOT/install.sh" "$TARGET" >"$SANDBOX/out.txt" 2>&1
+  assert_eq "first run records empty mcps" "$(state_field mcps)" '[]'
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_eq "second run reuses explicit empty selection, does not default to all" \
+    "$(state_field mcps)" '[]'
+  teardown_sandbox
+}
+
+test_tool_selection_is_reused_on_update() {
+  setup_sandbox
+  DEV_TEAM_REPO="$FIXTURE" DEV_TEAM_REF=main DEV_TEAM_TOOLS=claude NO_COLOR=1 \
+    bash "$REPO_ROOT/install.sh" "$TARGET" >"$SANDBOX/out.txt" 2>&1
+  assert_eq "first run records single tool" "$(state_field tools)" '["claude"]'
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_eq "second run reuses recorded tools" "$(state_field tools)" '["claude"]'
+  assert_out_contains "reports tools reuse" "from previous install"
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
@@ -399,4 +425,6 @@ test_claude_md_update_preserves_two_trailing_blank_lines
 test_claude_md_update_preserves_missing_trailing_newline_when_end_marker_is_last_line
 test_mcp_selection_is_reused_on_update
 test_mcp_selection_absent_from_state_falls_back_to_default
+test_mcp_selection_explicit_empty_is_reused_not_defaulted
+test_tool_selection_is_reused_on_update
 finish
