@@ -424,13 +424,21 @@ test_first_upgrade_notes_baseline_adoption() {
 
 test_update_run_does_not_repeat_baseline_adoption_note() {
   setup_sandbox
-  mkdir -p "$TARGET/.claude/agents"
-  printf 'mine\n' > "$TARGET/.claude/agents/code-reviewer.md"
   run_install
-  printf 'v2 architect\n' > "$FIXTURE/.claude/agents/code-architect.md"
+  printf 'mine new agent\n' > "$TARGET/.claude/agents/new-agent.md"
+  printf 'v2 new agent\n'   > "$FIXTURE/.claude/agents/new-agent.md"
   fixture_commit v2
   run_install
+  assert_out_contains "update run keeps the newly-adopted file"  "1 kept"
   assert_out_lacks "update run omits baseline adoption note" "existing files were recorded as the baseline"
+  teardown_sandbox
+}
+
+test_fresh_install_without_kept_files_omits_baseline_note() {
+  setup_sandbox
+  run_install
+  assert_out_lacks "install run with nothing kept omits baseline adoption note" \
+    "existing files were recorded as the baseline"
   teardown_sandbox
 }
 
@@ -466,4 +474,5 @@ test_tool_selection_is_reused_on_update
 test_update_summary_tallies_and_lists_conflicts
 test_first_upgrade_notes_baseline_adoption
 test_update_run_does_not_repeat_baseline_adoption_note
+test_fresh_install_without_kept_files_omits_baseline_note
 finish
