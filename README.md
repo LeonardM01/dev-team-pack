@@ -84,11 +84,11 @@ Defined in `.claude/agents/`:
 | Agent | Name | Role |
 |---|---|---|
 | `code-architect` | **Albus** | Analyzes codebase patterns, designs the architecture, breaks work into tasks, and delegates. Model: Opus. |
-| `fullstack-developer` | **Harry** | Implements features across DB, API, and frontend. Model: Sonnet. |
-| `code-reviewer` | Hermione | Reviews diffs for correctness, edge cases, security. |
+| `fullstack-developer` | **Harry** | Implements features across DB, API, frontend, and mobile — whatever stack the project uses. Model: Sonnet. |
+| `code-reviewer` | Hermione | Reviews diffs for correctness, requirement coverage, edge cases, security. |
 | `docs-maintainer` | Ron | Keeps README / CLAUDE.md / docs in sync after code changes. |
 
-Albus is the orchestrator — he delegates implementation to Harry, then hands the diff to Hermione for review and to Ron for docs.
+Albus is the orchestrator — he delegates implementation to Harry (baseline first, then one task per blueprint phase), hands the diff plus blueprint and requirements to Hermione for review (max 3 rounds, blocker/should-fix/nit severity), then to Ron for docs. He tracks the run in a `PROGRESS.md` scratchpad in the working directory.
 
 Each agent has its own persistent memory under `.claude/agent-memory/<agent>/` (versioned, shared with the team).
 
