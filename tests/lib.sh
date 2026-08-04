@@ -67,13 +67,13 @@ assert_file_absent() {
   if [ -e "$2" ]; then fail "$1" "expected absent: $2"; else ok "$1"; fi
 }
 assert_out_contains() {
-  if grep -qF "$2" "$SANDBOX/out.txt"; then ok "$1"; else
+  if grep -qF -- "$2" "$SANDBOX/out.txt"; then ok "$1"; else
     fail "$1" "output missing [$2]; got:
 $(cat "$SANDBOX/out.txt")"
   fi
 }
 assert_out_lacks() {
-  if grep -qF "$2" "$SANDBOX/out.txt"; then fail "$1" "output should not contain [$2]"; else ok "$1"; fi
+  if grep -qF -- "$2" "$SANDBOX/out.txt"; then fail "$1" "output should not contain [$2]"; else ok "$1"; fi
 }
 assert_files_identical() {
   if cmp -s "$2" "$3"; then

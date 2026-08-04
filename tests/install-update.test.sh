@@ -398,6 +398,42 @@ test_tool_selection_is_reused_on_update() {
   teardown_sandbox
 }
 
+test_update_summary_tallies_and_lists_conflicts() {
+  setup_sandbox
+  run_install
+  printf 'mine\n' > "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v2 reviewer\n'  > "$FIXTURE/.claude/agents/code-reviewer.md"
+  printf 'v2 architect\n' > "$FIXTURE/.claude/agents/code-architect.md"
+  fixture_commit v2
+  run_install
+  assert_out_contains "summary tallies updates"   "1 updated"
+  assert_out_contains "summary tallies conflicts" "1 conflict"
+  assert_out_contains "summary names conflict"    ".claude/agents/code-reviewer.md"
+  assert_out_contains "summary suggests force"    "--force"
+  teardown_sandbox
+}
+
+test_first_upgrade_notes_baseline_adoption() {
+  setup_sandbox
+  mkdir -p "$TARGET/.claude/agents"
+  printf 'mine\n' > "$TARGET/.claude/agents/code-reviewer.md"
+  run_install
+  assert_out_contains "first run explains adoption" "existing files were recorded as the baseline"
+  teardown_sandbox
+}
+
+test_update_run_does_not_repeat_baseline_adoption_note() {
+  setup_sandbox
+  mkdir -p "$TARGET/.claude/agents"
+  printf 'mine\n' > "$TARGET/.claude/agents/code-reviewer.md"
+  run_install
+  printf 'v2 architect\n' > "$FIXTURE/.claude/agents/code-architect.md"
+  fixture_commit v2
+  run_install
+  assert_out_lacks "update run omits baseline adoption note" "existing files were recorded as the baseline"
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
@@ -427,4 +463,7 @@ test_mcp_selection_is_reused_on_update
 test_mcp_selection_absent_from_state_falls_back_to_default
 test_mcp_selection_explicit_empty_is_reused_not_defaulted
 test_tool_selection_is_reused_on_update
+test_update_summary_tallies_and_lists_conflicts
+test_first_upgrade_notes_baseline_adoption
+test_update_run_does_not_repeat_baseline_adoption_note
 finish

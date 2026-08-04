@@ -221,22 +221,68 @@ preamble() {
 }
 
 print_summary() {
-  [ -t 1 ] || return 0
-  local mcp_count
+  local mcp_count short_version
   mcp_count="$(printf '%s' "$SELECTED_MCPS" | tr ' ' '\n' | grep -c . || true)"
+  short_version="$(printf '%s' "$PACK_VERSION" | cut -c1-7)"
+
   if [ "$UI_RICH" = "1" ]; then
-    printf '%s%s✓ Installation complete%s\n\n' "$C_GREEN" "$C_BOLD" "$C_RESET"
-    printf '  %starget%s  %s\n'  "$C_DIM" "$C_RESET" "$TARGET"
-    printf '  %sref%s     %s\n' "$C_DIM" "$C_RESET" "$REF"
-    printf '  %stools%s   %s\n' "$C_DIM" "$C_RESET" "$SELECTED_TOOLS"
-    printf '  %smcps%s    %s (%s enabled)\n\n' "$C_DIM" "$C_RESET" "$SELECTED_MCPS" "$mcp_count"
+    if [ "$MODE" = "update" ]; then
+      printf '%s%s✓ Update complete%s\n\n' "$C_GREEN" "$C_BOLD" "$C_RESET"
+    else
+      printf '%s%s✓ Installation complete%s\n\n' "$C_GREEN" "$C_BOLD" "$C_RESET"
+    fi
+    printf '  %starget%s   %s\n'  "$C_DIM" "$C_RESET" "$TARGET"
+    printf '  %sref%s      %s\n'  "$C_DIM" "$C_RESET" "$REF"
+    printf '  %sversion%s  %s\n'  "$C_DIM" "$C_RESET" "$short_version"
+    printf '  %stools%s    %s\n'  "$C_DIM" "$C_RESET" "$SELECTED_TOOLS"
+    printf '  %smcps%s     %s (%s enabled)\n\n' "$C_DIM" "$C_RESET" "${SELECTED_MCPS:-none}" "$mcp_count"
+
+    if [ "$MODE" = "update" ]; then
+      printf '  %s%s updated · %s kept · %s conflicts%s\n' \
+        "$C_DIM" "$N_UPDATED" "$N_KEPT" "$N_CONFLICT" "$C_RESET"
+      if [ "$N_ADDED" -gt 0 ]; then
+        printf '  %s%s newly added%s\n' "$C_DIM" "$N_ADDED" "$C_RESET"
+      fi
+    else
+      printf '  %s%s added · %s kept%s\n' "$C_DIM" "$N_ADDED" "$N_KEPT" "$C_RESET"
+    fi
+    printf '\n'
+
+    if [ "$N_CONFLICT" -gt 0 ] && [ -s "$WORK/conflicts.txt" ]; then
+      printf '  %sConflicts (kept your version):%s\n' "$C_YELLOW" "$C_RESET"
+      while IFS= read -r c; do
+        printf '    %s! %s%s\n' "$C_YELLOW" "$c" "$C_RESET"
+      done < "$WORK/conflicts.txt"
+      printf '\n  %sRe-run with --force to overwrite conflicts.%s\n\n' "$C_DIM" "$C_RESET"
+    fi
+
+    if [ "$MODE" = "install" ] && [ "$N_KEPT" -gt 0 ]; then
+      printf '  %sNote: %s existing files were recorded as the baseline. Future updates\n' "$C_DIM" "$N_KEPT"
+      printf '  may overwrite them if upstream changes the same file — review them now\n'
+      printf '  if any hold customizations you want to keep.%s\n\n' "$C_RESET"
+    fi
+
     printf '  %sNext: restart your shell, then Claude Code and Cursor, to pick up new MCP servers.%s\n\n' "$C_DIM" "$C_RESET"
+    printf '  %sCommit .dev-team-pack.json so teammates share the same baseline.%s\n\n' "$C_DIM" "$C_RESET"
   else
-    printf '[dev-team-pack] Installation complete.\n'
-    printf '  target: %s\n' "$TARGET"
-    printf '  ref:    %s\n' "$REF"
-    printf '  tools:  %s\n' "$SELECTED_TOOLS"
-    printf '  mcps:   %s\n' "$SELECTED_MCPS"
+    if [ "$MODE" = "update" ]; then
+      printf '[dev-team-pack] Update complete.\n'
+      printf '  %s updated, %s kept, %s conflicts\n' "$N_UPDATED" "$N_KEPT" "$N_CONFLICT"
+      if [ -s "$WORK/conflicts.txt" ]; then
+        while IFS= read -r c; do printf '  conflict: %s\n' "$c"; done < "$WORK/conflicts.txt"
+        printf '  Re-run with --force to overwrite conflicts.\n'
+      fi
+    else
+      printf '[dev-team-pack] Installation complete.\n'
+      if [ "$N_KEPT" -gt 0 ]; then
+        printf '  Note: %s existing files were recorded as the baseline.\n' "$N_KEPT"
+      fi
+    fi
+    printf '  target:  %s\n' "$TARGET"
+    printf '  ref:     %s\n' "$REF"
+    printf '  version: %s\n' "$short_version"
+    printf '  tools:   %s\n' "$SELECTED_TOOLS"
+    printf '  mcps:    %s\n' "${SELECTED_MCPS:-none}"
   fi
 }
 
