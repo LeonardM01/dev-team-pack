@@ -40,6 +40,9 @@ WORK=""
 SELECTED_TOOLS=""
 SELECTED_MCPS=""
 MCP_FILTER_MODE="none"
+HASH_MODE="none"
+PACK_VERSION=""
+PACK_VERSION_SOURCE=""
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   C_RESET=$'\033[0m'
@@ -245,6 +248,63 @@ detect_jq_runtime() {
     MCP_FILTER_MODE=none
     log "MCP filter: none (jq and python3 unavailable — MCP JSON will be unfiltered)"
   fi
+}
+
+detect_hash_runtime() {
+  if command -v shasum >/dev/null 2>&1; then
+    HASH_MODE=shasum
+  elif command -v sha256sum >/dev/null 2>&1; then
+    HASH_MODE=sha256sum
+  elif command -v python3 >/dev/null 2>&1; then
+    HASH_MODE=python
+  else
+    HASH_MODE=none
+  fi
+  log "hash: $HASH_MODE"
+}
+
+sha256_stdin() {
+  case "$HASH_MODE" in
+    shasum)    shasum -a 256 | cut -d' ' -f1 ;;
+    sha256sum) sha256sum | cut -d' ' -f1 ;;
+    python)    python3 -c 'import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())' ;;
+    *)         return 1 ;;
+  esac
+}
+
+sha256_file() {
+  [ -f "$1" ] || return 1
+  case "$HASH_MODE" in
+    shasum)    shasum -a 256 "$1" | cut -d' ' -f1 ;;
+    sha256sum) sha256sum "$1" | cut -d' ' -f1 ;;
+    python)    python3 -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1" ;;
+    *)         return 1 ;;
+  esac
+}
+
+pack_tree_hash() {
+  (
+    cd "$WORK/pack" || exit 1
+    find . -type f -not -path './.git/*' -print0 \
+      | LC_ALL=C sort -z \
+      | while IFS= read -r -d '' f; do
+          printf '%s:%s\n' "$f" "$(sha256_file "$f")"
+        done
+  ) | sha256_stdin
+}
+
+resolve_pack_version() {
+  if [ -d "$WORK/pack/.git" ] && command -v git >/dev/null 2>&1; then
+    PACK_VERSION="$(git -C "$WORK/pack" rev-parse HEAD 2>/dev/null || true)"
+    if [ -n "$PACK_VERSION" ]; then
+      PACK_VERSION_SOURCE=git
+      log "pack version $PACK_VERSION (git)"
+      return 0
+    fi
+  fi
+  PACK_VERSION="$(pack_tree_hash)"
+  PACK_VERSION_SOURCE=tree
+  log "pack version $PACK_VERSION (tree)"
 }
 
 parse_csv_list() {
@@ -827,6 +887,8 @@ main() {
 
   divider "select"
   detect_jq_runtime
+  detect_hash_runtime
+  resolve_pack_version
   select_tools
   select_mcps
 

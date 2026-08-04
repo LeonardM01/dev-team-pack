@@ -23,7 +23,16 @@ test_existing_file_is_preserved() {
   teardown_sandbox
 }
 
+test_version_is_recorded_as_git_sha() {
+  setup_sandbox
+  run_install
+  local head; head="$(git -C "$FIXTURE" rev-parse HEAD)"
+  assert_out_contains "reports resolved pack version" "$head"
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
+test_version_is_recorded_as_git_sha
 finish
