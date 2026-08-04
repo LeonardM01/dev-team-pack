@@ -339,6 +339,39 @@ test_claude_md_update_preserves_missing_trailing_newline_when_end_marker_is_last
   teardown_sandbox
 }
 
+test_mcp_selection_is_reused_on_update() {
+  setup_sandbox
+  DEV_TEAM_REPO="$FIXTURE" DEV_TEAM_REF=main DEV_TEAM_MCPS=context7 NO_COLOR=1 \
+    bash "$REPO_ROOT/install.sh" "$TARGET" >"$SANDBOX/out.txt" 2>&1
+  assert_eq "first run records single mcp" "$(state_field mcps)" '["context7"]'
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_eq "second run reuses recorded mcps" "$(state_field mcps)" '["context7"]'
+  assert_out_contains "reports reuse" "from previous install"
+  teardown_sandbox
+}
+
+test_mcp_selection_absent_from_state_falls_back_to_default() {
+  setup_sandbox
+  DEV_TEAM_REPO="$FIXTURE" DEV_TEAM_REF=main DEV_TEAM_MCPS=context7 NO_COLOR=1 \
+    bash "$REPO_ROOT/install.sh" "$TARGET" >"$SANDBOX/out.txt" 2>&1
+  assert_eq "first run records single mcp" "$(state_field mcps)" '["context7"]'
+  python3 -c '
+import json
+sf = "'"$TARGET"'/.dev-team-pack.json"
+d = json.load(open(sf))
+d.pop("mcps", None)
+json.dump(d, open(sf, "w"), indent=2)
+'
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_eq "second run does not silently reuse empty selection; falls back to non-interactive default (all)" \
+    "$(state_field mcps)" '["context7", "lean-ctx"]'
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
@@ -364,4 +397,6 @@ test_claude_md_missing_end_marker_leaves_file_untouched
 test_claude_md_update_preserves_single_trailing_blank_line
 test_claude_md_update_preserves_two_trailing_blank_lines
 test_claude_md_update_preserves_missing_trailing_newline_when_end_marker_is_last_line
+test_mcp_selection_is_reused_on_update
+test_mcp_selection_absent_from_state_falls_back_to_default
 finish

@@ -713,6 +713,9 @@ select_tools() {
       SELECTED_TOOLS="$(parse_csv_list "$DEV_TEAM_TOOLS" "$all_tools")"
     fi
     log "Tools from env: ${SELECTED_TOOLS:-none}"
+  elif [ "$MODE" = "update" ] && [ "$RECONFIGURE" != "1" ] && [ "$STATE_HAS_TOOLS" = "1" ] && [ -n "$STATE_TOOLS" ]; then
+    SELECTED_TOOLS="$STATE_TOOLS"
+    log "Tools from previous install: $SELECTED_TOOLS"
   elif [ "${DEV_TEAM_NONINTERACTIVE:-}" = "1" ]; then
     SELECTED_TOOLS="$all_tools"
     log "Tools (non-interactive default): $SELECTED_TOOLS"
@@ -761,6 +764,12 @@ print(' '.join(data.get('mcpServers', {}).keys()))
       SELECTED_MCPS="$(parse_csv_list "$DEV_TEAM_MCPS" "$all_mcps")"
     fi
     log "MCPs from env: ${SELECTED_MCPS:-none}"
+    return 0
+  fi
+
+  if [ "$MODE" = "update" ] && [ "$RECONFIGURE" != "1" ] && [ "$STATE_HAS_MCPS" = "1" ]; then
+    SELECTED_MCPS="$STATE_MCPS"
+    log "MCPs from previous install: ${SELECTED_MCPS:-none}"
     return 0
   fi
 
