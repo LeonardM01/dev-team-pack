@@ -1033,6 +1033,7 @@ merge_claude_dir() {
   [ -d "$src_base" ] || { STEP_STATUS=skip; log "no .claude/ in pack"; return 0; }
 
   local preserved=0
+  local n_added0=$N_ADDED n_updated0=$N_UPDATED n_conflict0=$N_CONFLICT
 
   while IFS= read -r -d '' src_file; do
     local rel="${src_file#"$src_base/"}"
@@ -1050,8 +1051,8 @@ merge_claude_dir() {
   done < <(find "$src_base" -type f -print0)
 
   log "added $N_ADDED · updated $N_UPDATED · kept $N_KEPT · conflicts $N_CONFLICT · local settings preserved $preserved"
-  if [ "$N_ADDED" -eq 0 ] && [ "$N_UPDATED" -eq 0 ]; then STEP_STATUS=skip; fi
-  if [ "$N_CONFLICT" -gt 0 ]; then STEP_STATUS=warn; fi
+  if [ "$N_ADDED" -eq "$n_added0" ] && [ "$N_UPDATED" -eq "$n_updated0" ]; then STEP_STATUS=skip; fi
+  if [ "$N_CONFLICT" -gt "$n_conflict0" ]; then STEP_STATUS=warn; fi
 }
 
 merge_cursor_dir() {
@@ -1068,6 +1069,8 @@ merge_cursor_dir() {
     return 0
   fi
 
+  local n_added0=$N_ADDED n_updated0=$N_UPDATED n_conflict0=$N_CONFLICT
+
   while IFS= read -r -d '' src_file; do
     local rel="${src_file#"$src_base/"}"
     local dest="$TARGET/.cursor/$rel"
@@ -1075,8 +1078,8 @@ merge_cursor_dir() {
   done < <(find "$src_base" -type f -print0)
 
   log "added $N_ADDED · updated $N_UPDATED · kept $N_KEPT · conflicts $N_CONFLICT"
-  if [ "$N_ADDED" -eq 0 ] && [ "$N_UPDATED" -eq 0 ]; then STEP_STATUS=skip; fi
-  if [ "$N_CONFLICT" -gt 0 ]; then STEP_STATUS=warn; fi
+  if [ "$N_ADDED" -eq "$n_added0" ] && [ "$N_UPDATED" -eq "$n_updated0" ]; then STEP_STATUS=skip; fi
+  if [ "$N_CONFLICT" -gt "$n_conflict0" ]; then STEP_STATUS=warn; fi
 }
 
 merge_claude_md() {

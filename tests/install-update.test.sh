@@ -163,6 +163,22 @@ test_adopted_file_is_updated_on_next_run() {
   teardown_sandbox
 }
 
+test_conflict_in_one_step_does_not_warn_other_steps() {
+  setup_sandbox
+  run_install
+  printf 'mine\n' > "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_out_contains "claude step reports its own conflict warning" \
+    "Merge .claude/ config: finished with warnings"
+  assert_out_lacks "cursor step not contaminated by claude's conflict" \
+    "Merge .cursor/ config: finished with warnings"
+  assert_out_contains "cursor step reports skipped when nothing changed there" \
+    "Merge .cursor/ config: skipped"
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
@@ -178,4 +194,5 @@ test_conflict_is_reported_not_overwritten
 test_force_overwrites_conflict
 test_deleted_file_stays_deleted
 test_adopted_file_is_updated_on_next_run
+test_conflict_in_one_step_does_not_warn_other_steps
 finish
