@@ -44,6 +44,18 @@ HASH_MODE="none"
 PACK_VERSION=""
 PACK_VERSION_SOURCE=""
 
+STATE_ENABLED=0
+STATE_PRESENT=0
+MODE="install"
+STATE_VERSION=""
+STATE_REF=""
+STATE_INSTALLED_AT=""
+STATE_TOOLS=""
+STATE_MCPS=""
+STATE_HAS_TOOLS=0
+STATE_HAS_MCPS=0
+STATE_SCHEMA_SUPPORTED=1
+
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   C_RESET=$'\033[0m'
   C_DIM=$'\033[2m'
@@ -308,6 +320,126 @@ resolve_pack_version() {
     log "hashing unavailable — pack version cannot be computed"
   fi
   log "pack version $PACK_VERSION (tree)"
+}
+
+state_path() { printf '%s/.dev-team-pack.json' "$TARGET"; }
+
+detect_state_support() {
+  if [ "$HASH_MODE" = "none" ] || ! command -v python3 >/dev/null 2>&1; then
+    STATE_ENABLED=0
+    log "update detection unavailable (needs a sha256 tool and python3) — existing files always win"
+  else
+    STATE_ENABLED=1
+  fi
+}
+
+read_state() {
+  : > "$WORK/state_old.tsv"
+  : > "$WORK/state_new.tsv"
+  [ "$STATE_ENABLED" = "1" ] || return 0
+
+  local sf; sf="$(state_path)"
+  [ -f "$sf" ] || return 0
+
+  if ! validate_json "$sf"; then
+    die "Corrupt state file: $sf (delete it to reinstall from scratch)"
+  fi
+
+  local meta
+  meta="$(python3 - "$sf" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+print(d.get("schema", 0))
+print(d.get("version", ""))
+print(d.get("ref", ""))
+print(d.get("installedAt", ""))
+print("1" if "tools" in d else "0")
+print(" ".join(d.get("tools", [])))
+print("1" if "mcps" in d else "0")
+print(" ".join(d.get("mcps", [])))
+PY
+)"
+
+  local schema
+  schema="$(printf '%s\n' "$meta" | sed -n 1p)"
+  STATE_VERSION="$(printf '%s\n' "$meta" | sed -n 2p)"
+  STATE_REF="$(printf '%s\n' "$meta" | sed -n 3p)"
+  STATE_INSTALLED_AT="$(printf '%s\n' "$meta" | sed -n 4p)"
+  STATE_HAS_TOOLS="$(printf '%s\n' "$meta" | sed -n 5p)"
+  STATE_TOOLS="$(printf '%s\n' "$meta" | sed -n 6p)"
+  STATE_HAS_MCPS="$(printf '%s\n' "$meta" | sed -n 7p)"
+  STATE_MCPS="$(printf '%s\n' "$meta" | sed -n 8p)"
+
+  if [ "${schema:-0}" -gt "$STATE_SCHEMA_SUPPORTED" ]; then
+    die "State file schema $schema is newer than this installer supports ($STATE_SCHEMA_SUPPORTED). Update the installer and re-run."
+  fi
+
+  python3 - "$sf" <<'PY' > "$WORK/state_old.tsv"
+import json, sys
+d = json.load(open(sys.argv[1]))
+for k, v in d.get("files", {}).items():
+    print("%s\t%s" % (k, v))
+PY
+
+  STATE_PRESENT=1
+  MODE="update"
+}
+
+state_hash_for() {
+  [ -s "$WORK/state_old.tsv" ] || return 0
+  awk -F'\t' -v k="$1" '$1 == k { print $2; exit }' "$WORK/state_old.tsv"
+}
+
+record_state_entry() {
+  [ -n "${2:-}" ] || return 0
+  printf '%s\t%s\n' "$1" "$2" >> "$WORK/state_new.tsv"
+}
+
+write_state() {
+  if [ "$STATE_ENABLED" != "1" ]; then
+    STEP_STATUS=skip
+    log "state tracking disabled"
+    return 0
+  fi
+
+  local sf now installed_at
+  sf="$(state_path)"
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  installed_at="${STATE_INSTALLED_AT:-$now}"
+
+  python3 - "$sf" "$WORK/state_new.tsv" "$REPO_URL" "$REF" "$PACK_VERSION" \
+      "$PACK_VERSION_SOURCE" "$installed_at" "$now" "$SELECTED_TOOLS" "$SELECTED_MCPS" <<'PY'
+import json, sys, io
+
+(sf, tsv, repo, ref, version, vsrc, installed_at, now, tools, mcps) = sys.argv[1:11]
+
+files = {}
+with io.open(tsv, encoding="utf-8") as fh:
+    for line in fh:
+        line = line.rstrip("\n")
+        if not line:
+            continue
+        k, _, v = line.partition("\t")
+        files[k] = v
+
+state = {
+    "schema": 1,
+    "repo": repo,
+    "ref": ref,
+    "version": version,
+    "versionSource": vsrc,
+    "installedAt": installed_at,
+    "updatedAt": now,
+    "tools": tools.split(),
+    "mcps": mcps.split(),
+    "files": dict(sorted(files.items())),
+}
+with io.open(sf, "w", encoding="utf-8") as fh:
+    json.dump(state, fh, indent=2)
+    fh.write("\n")
+PY
+
+  log "wrote $(basename "$sf")"
 }
 
 parse_csv_list() {
@@ -892,6 +1024,8 @@ main() {
   detect_jq_runtime
   detect_hash_runtime
   resolve_pack_version
+  detect_state_support
+  read_state
   select_tools
   select_mcps
 
@@ -916,6 +1050,8 @@ main() {
   divider "hooks"
   step "Run environment setup"   run_env_setup
   step "Run stack analysis"      run_analysis
+
+  step "Record install state"    write_state
 
   print_summary
 }
