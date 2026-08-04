@@ -302,8 +302,11 @@ resolve_pack_version() {
       return 0
     fi
   fi
-  PACK_VERSION="$(pack_tree_hash)"
+  PACK_VERSION="$(pack_tree_hash || true)"
   PACK_VERSION_SOURCE=tree
+  if [ -z "$PACK_VERSION" ]; then
+    log "hashing unavailable — pack version cannot be computed"
+  fi
   log "pack version $PACK_VERSION (tree)"
 }
 
