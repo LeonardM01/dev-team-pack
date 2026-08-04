@@ -49,9 +49,37 @@ test_state_file_written_on_install() {
   teardown_sandbox
 }
 
+test_second_run_reports_up_to_date() {
+  setup_sandbox
+  run_install
+  run_install
+  assert_out_contains "second run reports up to date" "Already up to date"
+  assert_eq "up-to-date run exits 0" "$(install_exit_code)" "0"
+  teardown_sandbox
+}
+
+test_force_bypasses_up_to_date() {
+  setup_sandbox
+  run_install
+  run_install --force
+  assert_out_lacks "force bypasses early exit" "Already up to date"
+  teardown_sandbox
+}
+
+test_target_positional_still_works_after_flags() {
+  setup_sandbox
+  run_install --force
+  assert_file_is "target arg honored alongside flag" \
+    "$TARGET/.claude/agents/code-reviewer.md" "v1 reviewer"
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
 test_version_is_recorded_as_git_sha
 test_state_file_written_on_install
+test_second_run_reports_up_to_date
+test_force_bypasses_up_to_date
+test_target_positional_still_works_after_flags
 finish

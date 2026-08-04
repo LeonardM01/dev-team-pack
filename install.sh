@@ -3,11 +3,22 @@
 # Usage: bash install.sh [TARGET_DIR]    (run with --help for full options)
 set -euo pipefail
 
-if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+REPO_URL="${DEV_TEAM_REPO:-https://github.com/LeonardM01/dev-team-pack.git}"
+REF="${DEV_TEAM_REF:-main}"
+FORCE="${DEV_TEAM_FORCE:-0}"
+RECONFIGURE="${DEV_TEAM_RECONFIGURE:-0}"
+TARGET=""
+
+usage() {
   cat <<'USAGE'
-Usage: bash install.sh [TARGET_DIR]
+Usage: bash install.sh [OPTIONS] [TARGET_DIR]
 
   TARGET_DIR  Directory to install dev-team-pack into (default: $PWD)
+
+Options:
+  --force          Reinstall even if up to date; overwrite conflicting files
+  --reconfigure    Re-open the tool and MCP prompts on an existing install
+  -h, --help       Show this help
 
 Environment:
   DEV_TEAM_REPO          Git repo URL (default: https://github.com/LeonardM01/dev-team-pack.git)
@@ -15,11 +26,14 @@ Environment:
   DEV_TEAM_TOOLS         CSV of tools to install: claude,cursor or all (default: interactive)
   DEV_TEAM_MCPS          CSV of MCP server names to enable, all, or none (default: interactive)
   DEV_TEAM_NONINTERACTIVE  Set to 1 to skip prompts and use defaults (both tools, all MCPs)
+  DEV_TEAM_FORCE         Set to 1 for --force
+  DEV_TEAM_RECONFIGURE   Set to 1 for --reconfigure
   NO_COLOR               Set to disable colors and the banner
 
 Examples:
   bash install.sh
   bash install.sh ~/projects/my-app
+  bash install.sh --force ~/projects/my-app
   DEV_TEAM_REF=v2.0 bash install.sh ~/projects/my-app
   DEV_TEAM_TOOLS=claude DEV_TEAM_MCPS=context7,lean-ctx bash install.sh ~/projects/my-app
   DEV_TEAM_TOOLS=cursor DEV_TEAM_MCPS=none bash install.sh ~/projects/my-app
@@ -28,13 +42,39 @@ Examples:
 Notes:
   - Existing files in TARGET_DIR are never overwritten (existing wins).
   - To change your selection on a re-run, manually delete the relevant files first.
-USAGE
-  exit 0
-fi
 
-REPO_URL="${DEV_TEAM_REPO:-https://github.com/LeonardM01/dev-team-pack.git}"
-REF="${DEV_TEAM_REF:-main}"
-TARGET="${1:-$PWD}"
+Update behavior:
+  The installer records what it wrote in TARGET_DIR/.dev-team-pack.json. On a
+  re-run it updates pack files you have not edited, preserves the ones you have,
+  and reports any file that changed both locally and upstream as a conflict.
+  Files the installer never wrote are always left alone. Commit the state file
+  so your teammates share the same baseline.
+USAGE
+}
+
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help)      usage; exit 0 ;;
+      --force)        FORCE=1 ;;
+      --reconfigure)  RECONFIGURE=1 ;;
+      --)             shift; break ;;
+      -*)             printf 'Unknown option: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
+      *)
+        if [ -n "$TARGET" ]; then
+          printf 'Unexpected argument: %s\n\n' "$1" >&2; usage >&2; exit 2
+        fi
+        TARGET="$1"
+        ;;
+    esac
+    shift
+  done
+  [ -n "$TARGET" ] || TARGET="${1:-$PWD}"
+  [ -n "$TARGET" ] || TARGET="$PWD"
+}
+
+parse_args "$@"
+
 WORK=""
 
 SELECTED_TOOLS=""
@@ -383,6 +423,32 @@ PY
 
   STATE_PRESENT=1
   MODE="update"
+}
+
+check_up_to_date() {
+  [ "$MODE" = "update" ] || return 1
+  [ "$FORCE" = "1" ] && return 1
+  [ -n "$STATE_VERSION" ] || return 1
+  [ -n "$PACK_VERSION" ] || return 1
+  [ "$STATE_VERSION" = "$PACK_VERSION" ] || return 1
+  return 0
+}
+
+print_up_to_date() {
+  local short_installed short_available
+  short_installed="$(printf '%s' "$STATE_VERSION" | cut -c1-7)"
+  short_available="$(printf '%s' "$PACK_VERSION"  | cut -c1-7)"
+  if [ "$UI_RICH" = "1" ]; then
+    printf '%s→%s %sCheck for updates%s\n' "$C_CYAN" "$C_RESET" "$C_BOLD" "$C_RESET"
+    printf '   %s· installed  %s (%s, %s)%s\n' "$C_DIM" "$short_installed" "$STATE_REF" "${STATE_INSTALLED_AT%%T*}" "$C_RESET"
+    printf '   %s· available  %s (%s)%s\n\n' "$C_DIM" "$short_available" "$REF" "$C_RESET"
+    printf '   %s%s✓ Already up to date%s\n\n' "$C_GREEN" "$C_BOLD" "$C_RESET"
+    printf '   %sRun with --force to reinstall anyway.%s\n\n' "$C_DIM" "$C_RESET"
+  else
+    printf '[dev-team-pack] installed: %s (%s)\n' "$short_installed" "$STATE_REF"
+    printf '[dev-team-pack] available: %s (%s)\n' "$short_available" "$REF"
+    printf '[dev-team-pack] Already up to date. Run with --force to reinstall.\n'
+  fi
 }
 
 state_hash_for() {
@@ -1026,6 +1092,12 @@ main() {
   resolve_pack_version
   detect_state_support
   read_state
+
+  if check_up_to_date; then
+    print_up_to_date
+    exit 0
+  fi
+
   select_tools
   select_mcps
 
