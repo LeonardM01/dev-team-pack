@@ -82,7 +82,9 @@ parse_args() {
   [ -n "$TARGET" ] || TARGET="$PWD"
 }
 
-parse_args "$@"
+if [ -z "${DEV_TEAM_SOURCE_ONLY:-}" ]; then
+  parse_args "$@"
+fi
 
 WORK=""
 
@@ -933,6 +935,32 @@ json.dump(data, open('$settings_tmp', 'w'), indent=2)
   fi
 }
 
+decide_file_action() {
+  local rel="$1" dest="$2" pack="$3"
+  local rec disk pk
+
+  rec="$(state_hash_for "$rel" || true)"
+
+  if [ ! -e "$dest" ]; then
+    if [ -n "$rec" ]; then printf 'skip-deleted'; else printf 'add'; fi
+    return 0
+  fi
+
+  if [ -z "$rec" ]; then
+    printf 'keep-untracked'
+    return 0
+  fi
+
+  disk="$(sha256_file "$dest" || true)"
+  pk="$(sha256_file "$pack" || true)"
+
+  if [ "$disk" = "$rec" ]; then
+    if [ "$pk" = "$rec" ]; then printf 'current'; else printf 'update'; fi
+  else
+    if [ "$pk" = "$rec" ]; then printf 'keep-local'; else printf 'conflict'; fi
+  fi
+}
+
 merge_claude_dir() {
   if ! printf ' %s ' "$SELECTED_TOOLS" | grep -q ' claude '; then
     STEP_STATUS=skip
@@ -1137,4 +1165,6 @@ main() {
   print_summary
 }
 
-main
+if [ -z "${DEV_TEAM_SOURCE_ONLY:-}" ]; then
+  main
+fi
