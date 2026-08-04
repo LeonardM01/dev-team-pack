@@ -69,7 +69,16 @@ parse_args() {
     esac
     shift
   done
-  [ -n "$TARGET" ] || TARGET="${1:-$PWD}"
+  if [ $# -gt 0 ]; then
+    if [ -n "$TARGET" ]; then
+      printf 'Unexpected argument: %s\n\n' "$1" >&2; usage >&2; exit 2
+    fi
+    TARGET="$1"
+    shift
+    if [ $# -gt 0 ]; then
+      printf 'Unexpected argument: %s\n\n' "$1" >&2; usage >&2; exit 2
+    fi
+  fi
   [ -n "$TARGET" ] || TARGET="$PWD"
 }
 

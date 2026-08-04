@@ -74,6 +74,16 @@ test_target_positional_still_works_after_flags() {
   teardown_sandbox
 }
 
+test_double_dash_rejects_extra_positional() {
+  setup_sandbox
+  local exit_code
+  bash "$REPO_ROOT/install.sh" --force -- foo bar >"$SANDBOX/out.txt" 2>&1
+  exit_code=$?
+  assert_eq "-- with two positionals exits 2" "$exit_code" "2"
+  assert_out_contains "-- with two positionals reports unexpected argument" "Unexpected argument: bar"
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
@@ -82,4 +92,5 @@ test_state_file_written_on_install
 test_second_run_reports_up_to_date
 test_force_bypasses_up_to_date
 test_target_positional_still_works_after_flags
+test_double_dash_rejects_extra_positional
 finish
