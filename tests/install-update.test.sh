@@ -222,33 +222,69 @@ test_edited_claude_md_block_conflicts() {
 test_claude_md_block_update_preserves_content_before_and_after() {
   setup_sandbox
   run_install
-  local orig; orig="$(cat "$TARGET/CLAUDE.md")"
-  printf '# Before notes\nsome preamble\n\n%s' "$orig" > "$TARGET/CLAUDE.md.tmp"
-  mv "$TARGET/CLAUDE.md.tmp" "$TARGET/CLAUDE.md"
-  printf '\n\n# After notes\ntrailing content\n' >> "$TARGET/CLAUDE.md"
+  {
+    printf '# Before notes\nsome preamble\n\n'
+    cat "$TARGET/CLAUDE.md"
+    printf '\n\n# After notes\ntrailing content\n'
+  } > "$SANDBOX/claude_md_seed.txt"
+  cp "$SANDBOX/claude_md_seed.txt" "$TARGET/CLAUDE.md"
   printf 'v2 pack docs\n' > "$FIXTURE/CLAUDE.md"
   fixture_commit v2
   run_install
-  if grep -q 'v2 pack docs' "$TARGET/CLAUDE.md"; then
-    ok "block updated with content on both sides"
-  else
-    fail "block updated with content on both sides" "block still at v1"
-  fi
-  if grep -q '# Before notes' "$TARGET/CLAUDE.md" && grep -q 'some preamble' "$TARGET/CLAUDE.md"; then
-    ok "content before markers preserved byte-for-byte"
-  else
-    fail "content before markers preserved byte-for-byte" "preamble lost"
-  fi
-  if grep -q '# After notes' "$TARGET/CLAUDE.md" && grep -q 'trailing content' "$TARGET/CLAUDE.md"; then
-    ok "content after markers preserved byte-for-byte"
-  else
-    fail "content after markers preserved byte-for-byte" "trailing content lost"
-  fi
-  if ! grep -q 'v1 pack docs' "$TARGET/CLAUDE.md"; then
-    ok "old block content removed with content on both sides"
-  else
-    fail "old block content removed with content on both sides" "v1 text still present"
-  fi
+  printf '# Before notes\nsome preamble\n\n<!-- dev-team-pack:begin -->\n# Dev Team Pack\nv2 pack docs\n<!-- dev-team-pack:end -->\n\n\n# After notes\ntrailing content\n' \
+    > "$SANDBOX/claude_md_expected.txt"
+  assert_files_identical "block update preserves content on both sides, byte-for-byte" \
+    "$TARGET/CLAUDE.md" "$SANDBOX/claude_md_expected.txt"
+  teardown_sandbox
+}
+
+test_claude_md_marker_substring_in_prose_is_not_treated_as_marker() {
+  setup_sandbox
+  run_install
+  {
+    printf 'Notes: markers are delimited by <!-- dev-team-pack:begin -->.\n\n'
+    cat "$TARGET/CLAUDE.md"
+  } > "$SANDBOX/claude_md_seed.txt"
+  cp "$SANDBOX/claude_md_seed.txt" "$TARGET/CLAUDE.md"
+  printf 'v2 pack docs\n' > "$FIXTURE/CLAUDE.md"
+  fixture_commit v2
+  run_install
+  printf 'Notes: markers are delimited by <!-- dev-team-pack:begin -->.\n\n<!-- dev-team-pack:begin -->\n# Dev Team Pack\nv2 pack docs\n<!-- dev-team-pack:end -->\n' \
+    > "$SANDBOX/claude_md_expected.txt"
+  assert_files_identical "marker text inside a prose line does not confuse the block locator" \
+    "$TARGET/CLAUDE.md" "$SANDBOX/claude_md_expected.txt"
+  teardown_sandbox
+}
+
+test_claude_md_update_preserves_missing_trailing_newline() {
+  setup_sandbox
+  run_install
+  {
+    cat "$TARGET/CLAUDE.md"
+    printf 'trailing content, no newline at EOF'
+  } > "$SANDBOX/claude_md_seed.txt"
+  cp "$SANDBOX/claude_md_seed.txt" "$TARGET/CLAUDE.md"
+  printf 'v2 pack docs\n' > "$FIXTURE/CLAUDE.md"
+  fixture_commit v2
+  run_install
+  printf '<!-- dev-team-pack:begin -->\n# Dev Team Pack\nv2 pack docs\n<!-- dev-team-pack:end -->\ntrailing content, no newline at EOF' \
+    > "$SANDBOX/claude_md_expected.txt"
+  assert_files_identical "tail content with no trailing newline is preserved exactly, no newline gained" \
+    "$TARGET/CLAUDE.md" "$SANDBOX/claude_md_expected.txt"
+  teardown_sandbox
+}
+
+test_claude_md_missing_end_marker_leaves_file_untouched() {
+  setup_sandbox
+  run_install
+  perl -0pi -e 's/<!-- dev-team-pack:end -->\n?//' "$TARGET/CLAUDE.md"
+  cp "$TARGET/CLAUDE.md" "$SANDBOX/claude_md_corrupted.txt"
+  printf 'v2 pack docs\n' > "$FIXTURE/CLAUDE.md"
+  fixture_commit v2
+  run_install
+  assert_files_identical "CLAUDE.md with begin marker but no end marker is left untouched" \
+    "$TARGET/CLAUDE.md" "$SANDBOX/claude_md_corrupted.txt"
+  assert_out_contains "missing end marker is logged" "no matching end marker"
   teardown_sandbox
 }
 
@@ -271,4 +307,7 @@ test_conflict_in_one_step_does_not_warn_other_steps
 test_claude_md_block_updates_preserving_user_content
 test_edited_claude_md_block_conflicts
 test_claude_md_block_update_preserves_content_before_and_after
+test_claude_md_marker_substring_in_prose_is_not_treated_as_marker
+test_claude_md_update_preserves_missing_trailing_newline
+test_claude_md_missing_end_marker_leaves_file_untouched
 finish

@@ -75,6 +75,14 @@ $(cat "$SANDBOX/out.txt")"
 assert_out_lacks() {
   if grep -qF "$2" "$SANDBOX/out.txt"; then fail "$1" "output should not contain [$2]"; else ok "$1"; fi
 }
+assert_files_identical() {
+  if cmp -s "$2" "$3"; then
+    ok "$1"
+  else
+    fail "$1" "files differ:
+$(diff "$2" "$3" 2>&1 | head -40)"
+  fi
+}
 
 finish() {
   printf '\n%s run, %s failed\n' "$TESTS_RUN" "$TESTS_FAILED"

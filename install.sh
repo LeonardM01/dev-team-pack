@@ -1159,9 +1159,21 @@ merge_claude_md() {
 
   local tmp="$WORK/claude_md_new"
   local begin_line end_line total_lines
-  begin_line="$(grep -n -F -m1 "$begin_marker" "$target_md" | cut -d: -f1)"
-  end_line="$(grep -n -F -m1 "$end_marker" "$target_md" | cut -d: -f1)"
-  total_lines="$(wc -l < "$target_md" | tr -d ' ')"
+  begin_line="$(grep -nxF -m1 "$begin_marker" "$target_md" | cut -d: -f1)"
+  end_line="$(grep -nxF -m1 "$end_marker" "$target_md" | cut -d: -f1 || true)"
+
+  if [ -z "$end_line" ]; then
+    STEP_STATUS=warn
+    log "CLAUDE.md has a dev-team-pack begin marker but no matching end marker; leaving file untouched"
+    return 0
+  fi
+
+  total_lines="$(awk 'END { print NR }' "$target_md")"
+
+  local file_ends_with_newline=1
+  if [ -s "$target_md" ] && [ -n "$(tail -c1 "$target_md")" ]; then
+    file_ends_with_newline=0
+  fi
 
   {
     if [ "$begin_line" -gt 1 ]; then
@@ -1169,7 +1181,13 @@ merge_claude_md() {
     fi
     printf '%s\n' "$block"
     if [ "$end_line" -lt "$total_lines" ]; then
-      sed -n "$((end_line + 1)),\$p" "$target_md"
+      local tail_content
+      tail_content="$(sed -n "$((end_line + 1)),\$p" "$target_md")"
+      if [ "$file_ends_with_newline" -eq 1 ]; then
+        printf '%s\n' "$tail_content"
+      else
+        printf '%s' "$tail_content"
+      fi
     fi
   } > "$tmp"
   cp "$tmp" "$target_md"
