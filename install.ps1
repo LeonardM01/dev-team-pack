@@ -1,15 +1,20 @@
 # Usage:
-#   .\install.ps1 [TargetDir]
+#   .\install.ps1 [TargetDir] [-Force] [-Reconfigure]
 #
-#   TargetDir   Directory to install dev-team-pack into (default: current directory)
+#   TargetDir      Directory to install dev-team-pack into (default: current directory)
+#   -Force         Reinstall even if up to date; overwrite conflicting files
+#   -Reconfigure   Accepted for parity with install.sh; currently a no-op — this
+#                  script has no tool/MCP selection prompts to re-open
 #
 #   Environment variables:
 #     $env:DEV_TEAM_REPO   Git repo URL (default: https://github.com/LeonardM01/dev-team-pack.git)
 #     $env:DEV_TEAM_REF    Branch/tag/ref to fetch (default: main)
+#     $env:DEV_TEAM_FORCE  Set to 1 for -Force
 #
 #   Examples:
 #     .\install.ps1
 #     .\install.ps1 C:\projects\my-app
+#     .\install.ps1 -Force C:\projects\my-app
 #     $env:DEV_TEAM_REF = 'v2.0'; .\install.ps1 C:\projects\my-app
 
 param(

@@ -40,8 +40,7 @@ Examples:
   DEV_TEAM_NONINTERACTIVE=1 bash install.sh ~/projects/my-app
 
 Notes:
-  - Existing files in TARGET_DIR are never overwritten (existing wins).
-  - To change your selection on a re-run, manually delete the relevant files first.
+  - To change your tool/MCP selection on a re-run, use --reconfigure.
 
 Update behavior:
   The installer records what it wrote in TARGET_DIR/.dev-team-pack.json. On a
