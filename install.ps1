@@ -13,7 +13,9 @@
 #     $env:DEV_TEAM_REF = 'v2.0'; .\install.ps1 C:\projects\my-app
 
 param(
-  [string]$TargetDir = $PWD.Path
+  [string]$TargetDir = $PWD.Path,
+  [switch]$Force,
+  [switch]$Reconfigure
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +23,16 @@ $ErrorActionPreference = 'Stop'
 $REPO_URL = if ($env:DEV_TEAM_REPO) { $env:DEV_TEAM_REPO } else { 'https://github.com/LeonardM01/dev-team-pack.git' }
 $REF      = if ($env:DEV_TEAM_REF)  { $env:DEV_TEAM_REF  } else { 'main' }
 $TARGET   = $TargetDir
+
+$FORCE = $Force.IsPresent -or ($env:DEV_TEAM_FORCE -eq '1')
+$STATE_PATH = Join-Path $TARGET '.dev-team-pack.json'
+
+$script:Mode      = 'install'
+$script:StateOld  = @{}
+$script:StateNew  = @{}
+$script:Conflicts = New-Object System.Collections.Generic.List[string]
+$script:Counters  = @{ Added = 0; Updated = 0; Kept = 0; Current = 0; Conflict = 0 }
+$script:StateMeta = $null
 
 function Write-Log {
   param([string]$Message)
@@ -107,6 +119,153 @@ function Fetch-Pack {
   Rename-Item -Path $extracted.FullName -NewName 'pack'
 }
 
+function Get-Sha256File {
+  param([string]$Path)
+  if (-not (Test-Path $Path)) { return $null }
+  (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
+}
+
+function Get-Sha256String {
+  param([string]$Text)
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
+  $sha   = [System.Security.Cryptography.SHA256]::Create()
+  try { ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }) -join '' }
+  finally { $sha.Dispose() }
+}
+
+function Get-PackVersion {
+  param([string]$Work)
+  $packDir = Join-Path $Work 'pack'
+  if ((Test-Path (Join-Path $packDir '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+    $sha = git -C $packDir rev-parse HEAD 2>$null
+    if ($LASTEXITCODE -eq 0 -and $sha) {
+      return @{ Version = $sha.Trim(); Source = 'git' }
+    }
+  }
+  $lines = Get-ChildItem -Path $packDir -Recurse -File |
+    Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' } |
+    ForEach-Object {
+      $rel = $_.FullName.Substring($packDir.Length).TrimStart('\','/') -replace '\\', '/'
+      "{0}:{1}" -f $rel, (Get-Sha256File $_.FullName)
+    } | Sort-Object
+  @{ Version = (Get-Sha256String ($lines -join "`n")); Source = 'tree' }
+}
+
+function Read-PackState {
+  if (-not (Test-Path $STATE_PATH)) { return }
+  try {
+    $json = Get-Content -Raw -Path $STATE_PATH | ConvertFrom-Json
+  } catch {
+    Invoke-Die "Corrupt state file: $STATE_PATH (delete it to reinstall from scratch)"
+  }
+  if ($json.schema -gt 1) {
+    Invoke-Die "State file schema $($json.schema) is newer than this installer supports (1). Update the installer and re-run."
+  }
+  $script:StateMeta = $json
+  $script:Mode = 'update'
+  if ($json.files) {
+    $json.files.PSObject.Properties | ForEach-Object {
+      $script:StateOld[$_.Name] = $_.Value
+    }
+  }
+}
+
+function Get-StateHash {
+  param([string]$Key)
+  if ($script:StateOld.ContainsKey($Key)) { return $script:StateOld[$Key] }
+  return $null
+}
+
+function Set-StateEntry {
+  param([string]$Key, [string]$Hash)
+  if ($Hash) { $script:StateNew[$Key] = $Hash }
+}
+
+function Write-PackState {
+  param([string]$Version, [string]$Source)
+  $now = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+  $installedAt = if ($script:StateMeta -and $script:StateMeta.installedAt) { $script:StateMeta.installedAt } else { $now }
+
+  $files = [ordered]@{}
+  $script:StateNew.Keys | Sort-Object | ForEach-Object { $files[$_] = $script:StateNew[$_] }
+
+  $state = [ordered]@{
+    schema        = 1
+    repo          = $REPO_URL
+    ref           = $REF
+    version       = $Version
+    versionSource = $Source
+    installedAt   = $installedAt
+    updatedAt     = $now
+    files         = $files
+  }
+  $state | ConvertTo-Json -Depth 5 | Set-Content -Path $STATE_PATH -Encoding UTF8
+  Write-Log "wrote .dev-team-pack.json"
+}
+
+function Get-FileAction {
+  param([string]$Key, [string]$Dest, [string]$Pack)
+  $rec = Get-StateHash -Key $Key
+
+  if (-not (Test-Path $Dest)) {
+    if ($rec) { return 'skip-deleted' } else { return 'add' }
+  }
+  if (-not $rec) { return 'keep-untracked' }
+
+  $disk = Get-Sha256File $Dest
+  $pk   = Get-Sha256File $Pack
+
+  if ($disk -eq $rec) {
+    if ($pk -eq $rec) { return 'current' } else { return 'update' }
+  } else {
+    if ($pk -eq $rec) { return 'keep-local' } else { return 'conflict' }
+  }
+}
+
+function Invoke-FileAction {
+  param([string]$Key, [string]$Dest, [string]$Pack)
+  $action = Get-FileAction -Key $Key -Dest $Dest -Pack $Pack
+  $rec = Get-StateHash -Key $Key
+
+  switch ($action) {
+    'add' {
+      $destDir = Split-Path $Dest -Parent
+      if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+      Copy-Item -Path $Pack -Destination $Dest
+      Set-StateEntry -Key $Key -Hash (Get-Sha256File $Dest)
+      $script:Counters.Added++
+      Write-Log "add      $Key"
+    }
+    'update' {
+      Copy-Item -Path $Pack -Destination $Dest -Force
+      Set-StateEntry -Key $Key -Hash (Get-Sha256File $Dest)
+      $script:Counters.Updated++
+      Write-Log "updated  $Key"
+    }
+    'conflict' {
+      if ($FORCE) {
+        Copy-Item -Path $Pack -Destination $Dest -Force
+        Set-StateEntry -Key $Key -Hash (Get-Sha256File $Dest)
+        $script:Counters.Updated++
+        Write-Log "updated  $Key (forced over conflict)"
+      } else {
+        Set-StateEntry -Key $Key -Hash $rec
+        $script:Counters.Conflict++
+        $script:Conflicts.Add($Key)
+        Write-Log "conflict $Key (modified locally, changed upstream)"
+      }
+    }
+    'keep-local'  { Set-StateEntry -Key $Key -Hash $rec; $script:Counters.Kept++ }
+    'current'     { Set-StateEntry -Key $Key -Hash $rec; $script:Counters.Current++ }
+    'skip-deleted'{ Set-StateEntry -Key $Key -Hash $rec }
+    'keep-untracked' {
+      if ($script:Mode -eq 'install') { Set-StateEntry -Key $Key -Hash (Get-Sha256File $Dest) }
+      $script:Counters.Kept++
+    }
+  }
+  return $action
+}
+
 function Merge-ClaudeDir {
   param([string]$Work)
 
@@ -129,48 +288,96 @@ function Merge-ClaudeDir {
 
     $dest = Join-Path $TARGET ".claude\$rel"
 
-    if (Test-Path $dest) {
-      Write-Log "skip .claude/$relNorm (existing wins)"
-    } else {
-      $destDir = Split-Path $dest -Parent
-      if (-not (Test-Path $destDir)) {
-        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-      }
-      Copy-Item -Path $srcFile -Destination $dest
-      Write-Log "add  .claude/$relNorm"
-    }
+    Invoke-FileAction -Key ".claude/$relNorm" -Dest $dest -Pack $srcFile | Out-Null
   }
 }
 
 function Merge-ClaudeMd {
   param([string]$Work)
-
-  $packMd    = Join-Path $Work 'pack\CLAUDE.md'
-  $targetMd  = Join-Path $TARGET 'CLAUDE.md'
+  $packMd      = Join-Path $Work 'pack\CLAUDE.md'
+  $targetMd    = Join-Path $TARGET 'CLAUDE.md'
   $beginMarker = '<!-- dev-team-pack:begin -->'
   $endMarker   = '<!-- dev-team-pack:end -->'
+  $key         = 'CLAUDE.md#dev-team-pack'
 
   if (-not (Test-Path $packMd)) { return }
 
-  $packContent = [System.IO.File]::ReadAllText($packMd)
-  $block = "$beginMarker`n# Dev Team Pack`n$packContent`n$endMarker"
+  # install.sh builds body from `$(cat pack_md)`, which strips ALL trailing
+  # newlines via command substitution, then re-adds exactly one when hashing.
+  # Mirror that here so the two installers compute identical hashes/bytes for
+  # the same pack content.
+  $packRaw     = [System.IO.File]::ReadAllText($packMd)
+  $packTrimmed = $packRaw -replace '(\r?\n)+$', ''
+  $body        = "# Dev Team Pack`n$packTrimmed"
+  $block       = "$beginMarker`n$body`n$endMarker"
+  $packHash    = Get-Sha256String "$body`n"
 
   if (-not (Test-Path $targetMd)) {
-    [System.IO.File]::WriteAllText($targetMd, $block + "`n")
+    [System.IO.File]::WriteAllText($targetMd, "$block`n")
+    Set-StateEntry -Key $key -Hash $packHash
     Write-Log "add  CLAUDE.md"
     return
   }
 
   $existing = [System.IO.File]::ReadAllText($targetMd)
+  # Split on bare `n only (not `r?`n) so any `r attached to a line, and any
+  # trailing "" element that encodes a final newline, survive round-tripping
+  # through -join later — this is what keeps the splice byte-for-byte.
   $lines = $existing -split "`n"
 
-  if ($lines | Where-Object { $_ -ceq $beginMarker }) {
-    Write-Log "skip CLAUDE.md (dev-team-pack already installed)"
+  if (-not ($lines | Where-Object { $_ -ceq $beginMarker })) {
+    [System.IO.File]::WriteAllText($targetMd, $existing + "`n`n---`n`n" + $block + "`n")
+    Set-StateEntry -Key $key -Hash $packHash
+    Write-Log "add  CLAUDE.md (appended dev-team block)"
     return
   }
 
-  [System.IO.File]::WriteAllText($targetMd, $existing + "`n`n---`n`n" + $block + "`n")
-  Write-Log "add  CLAUDE.md (appended dev-team block)"
+  $beginIdx = -1
+  $endIdx   = -1
+  for ($i = 0; $i -lt $lines.Length; $i++) {
+    if ($beginIdx -lt 0 -and $lines[$i] -ceq $beginMarker) { $beginIdx = $i; continue }
+    if ($beginIdx -ge 0 -and $endIdx -lt 0 -and $lines[$i] -ceq $endMarker) { $endIdx = $i; break }
+  }
+  if ($beginIdx -lt 0 -or $endIdx -lt 0) {
+    Write-Log "skip CLAUDE.md (dev-team-pack begin marker but no matching end marker; leaving file untouched)"
+    return
+  }
+
+  $innerLines  = if ($endIdx -gt $beginIdx + 1) { $lines[($beginIdx + 1)..($endIdx - 1)] } else { @() }
+  $currentBody = if ($innerLines.Length -gt 0) { ($innerLines -join "`n") + "`n" } else { "" }
+  $currentHash = Get-Sha256String $currentBody
+  $rec = Get-StateHash -Key $key
+
+  if (-not $rec) {
+    if ($script:Mode -eq 'install') { Set-StateEntry -Key $key -Hash $currentHash }
+    Write-Log "skip CLAUDE.md (block not tracked)"
+    return
+  }
+
+  if ($currentHash -eq $packHash) {
+    Set-StateEntry -Key $key -Hash $rec
+    Write-Log "skip CLAUDE.md (block already current)"
+    return
+  }
+
+  if (($currentHash -ne $rec) -and (-not $FORCE)) {
+    Set-StateEntry -Key $key -Hash $rec
+    $script:Counters.Conflict++
+    $script:Conflicts.Add($key)
+    Write-Log "conflict CLAUDE.md block (edited locally, changed upstream)"
+    return
+  }
+
+  $before = if ($beginIdx -gt 0) { $lines[0..($beginIdx - 1)] } else { @() }
+  $after  = if ($endIdx -lt ($lines.Length - 1)) { $lines[($endIdx + 1)..($lines.Length - 1)] } else { @() }
+
+  $newLines = @($before) + @($block -split "`n") + @($after)
+  $merged   = $newLines -join "`n"
+
+  [System.IO.File]::WriteAllText($targetMd, $merged)
+  Set-StateEntry -Key $key -Hash $packHash
+  $script:Counters.Updated++
+  Write-Log "updated CLAUDE.md dev-team block"
 }
 
 function Copy-McpJson {
@@ -181,12 +388,7 @@ function Copy-McpJson {
 
   if (-not (Test-Path $src)) { return }
 
-  if (Test-Path $dest) {
-    Write-Log "skip .mcp.json (existing wins)"
-  } else {
-    Copy-Item -Path $src -Destination $dest
-    Write-Log "add  .mcp.json"
-  }
+  Invoke-FileAction -Key '.mcp.json' -Dest $dest -Pack $src | Out-Null
 }
 
 function Run-EnvSetup {
@@ -265,13 +467,21 @@ function Run-Analysis {
 }
 
 function Print-Summary {
-  if (-not [Console]::IsOutputRedirected) {
-    Write-Host ""
-    Write-Host "[dev-team-pack] Installation complete."
-    Write-Host "  Target : $TARGET"
-    Write-Host "  Repo   : $REPO_URL"
-    Write-Host "  Ref    : $REF"
+  Write-Host "[dev-team-pack] $(if ($script:Mode -eq 'update') { 'Update complete.' } else { 'Installation complete.' })"
+  Write-Host "  Target : $TARGET"
+  Write-Host "  Repo   : $REPO_URL"
+  Write-Host "  Ref    : $REF"
+  Write-Host ("  {0} added, {1} updated, {2} kept, {3} conflicts" -f `
+    $script:Counters.Added, $script:Counters.Updated, $script:Counters.Kept, $script:Counters.Conflict)
+  if ($script:Conflicts.Count -gt 0) {
+    Write-Host "  Conflicts (kept your version):"
+    $script:Conflicts | ForEach-Object { Write-Host "    ! $_" }
+    Write-Host "  Re-run with -Force to overwrite conflicts."
   }
+  if (($script:Mode -eq 'install') -and ($script:Counters.Kept -gt 0)) {
+    Write-Host ("  Note: {0} existing files were recorded as the baseline." -f $script:Counters.Kept)
+  }
+  Write-Host "  Commit .dev-team-pack.json so teammates share the same baseline."
 }
 
 $WORK = $null
@@ -279,13 +489,27 @@ try {
   Require-TargetWritable
   $WORK = Get-WorkDir
   Fetch-Pack -Work $WORK
-  Merge-ClaudeDir -Work $WORK
-  Copy-McpJson -Work $WORK
-  Merge-ClaudeMd -Work $WORK
-  Run-EnvSetup -Work $WORK
-  Run-Analysis -Work $WORK
-  Print-Summary
-  Write-Log "Done."
+
+  $ver = Get-PackVersion -Work $WORK
+  Write-Log "pack version $($ver.Version) ($($ver.Source))"
+  Read-PackState
+
+  $upToDate = ($script:Mode -eq 'update') -and (-not $FORCE) -and
+              $script:StateMeta.version -and ($script:StateMeta.version -eq $ver.Version)
+
+  if ($upToDate) {
+    Write-Log "installed: $($script:StateMeta.version) ($($script:StateMeta.ref))"
+    Write-Log "Already up to date. Run with -Force to reinstall."
+  } else {
+    Merge-ClaudeDir -Work $WORK
+    Copy-McpJson    -Work $WORK
+    Merge-ClaudeMd  -Work $WORK
+    Run-EnvSetup    -Work $WORK
+    Run-Analysis    -Work $WORK
+    Write-PackState -Version $ver.Version -Source $ver.Source
+    Print-Summary
+    Write-Log "Done."
+  }
 } finally {
   if ($WORK -and (Test-Path $WORK)) {
     Remove-Item -Recurse -Force $WORK -ErrorAction SilentlyContinue
