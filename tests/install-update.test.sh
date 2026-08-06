@@ -491,7 +491,52 @@ test_state_is_superset_when_claude_deselected() {
   teardown_sandbox
 }
 
+bom_crlf_state_file() {
+  python3 - "$TARGET/.dev-team-pack.json" <<'PY'
+import sys
+p = sys.argv[1]
+data = open(p, 'rb').read()
+open(p, 'wb').write(b'\xef\xbb\xbf' + data.replace(b'\n', b'\r\n'))
+PY
+}
+
+test_state_file_with_bom_and_crlf_is_read() {
+  setup_sandbox
+  run_install
+  bom_crlf_state_file
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_eq "PowerShell-written state file (UTF-8 BOM + CRLF) does not abort install.sh" \
+    "$(install_exit_code)" "0"
+  assert_out_lacks "no raw python traceback on BOM state file" "Traceback (most recent call last)"
+  assert_file_is "update still applies with a BOM state file" \
+    "$TARGET/.claude/agents/code-reviewer.md" "v2 reviewer"
+  teardown_sandbox
+}
+
+test_non_numeric_schema_dies_with_friendly_message() {
+  setup_sandbox
+  run_install
+  python3 -c '
+import json, sys
+sf = sys.argv[1]
+d = json.load(open(sf))
+d["schema"] = "one"
+json.dump(d, open(sf, "w"), indent=2)
+' "$TARGET/.dev-team-pack.json"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_out_contains "non-numeric schema reports the friendly error" "Corrupt state file"
+  assert_out_lacks "non-numeric schema does not leak a raw shell error" \
+    "integer expression expected"
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
+test_state_file_with_bom_and_crlf_is_read
+test_non_numeric_schema_dies_with_friendly_message
 test_state_is_superset_when_cursor_deselected
 test_state_is_superset_when_claude_deselected
 test_fresh_install_copies_pack_files

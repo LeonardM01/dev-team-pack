@@ -104,6 +104,7 @@ STATE_TOOLS=""
 STATE_MCPS=""
 STATE_HAS_TOOLS=0
 STATE_HAS_MCPS=0
+STATE_CONFLICTS=""
 STATE_SCHEMA_SUPPORTED=1
 
 N_ADDED=0
@@ -437,22 +438,18 @@ detect_state_support() {
   fi
 }
 
-read_state() {
-  : > "$WORK/state_old.tsv"
-  : > "$WORK/state_new.tsv"
-  [ "$STATE_ENABLED" = "1" ] || return 0
-
-  local sf; sf="$(state_path)"
-  [ -f "$sf" ] || return 0
-
-  if ! validate_json "$sf"; then
-    die "Corrupt state file: $sf (delete it to reinstall from scratch)"
-  fi
-
-  local meta
-  meta="$(python3 - "$sf" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
+# The state file may have been written by install.ps1 on Windows PowerShell 5.1,
+# which emits a UTF-8 BOM and CRLF line endings. encoding="utf-8-sig" strips the
+# BOM; CRLF is insignificant whitespace to the JSON parser. Both readers below
+# use the SAME parser that install.sh actually reads the file with — validate_json
+# is deliberately NOT used here, because it prefers jq when available and jq
+# accepts a BOM that python3 rejects, which turned a friendly die into a raw
+# traceback under set -e.
+state_meta_json() {
+  python3 - "$1" <<'PY'
+import io, json, sys
+with io.open(sys.argv[1], encoding="utf-8-sig") as fh:
+    d = json.load(fh)
 print(d.get("schema", 0))
 print(d.get("version", ""))
 print(d.get("ref", ""))
@@ -461,8 +458,33 @@ print("1" if "tools" in d else "0")
 print(" ".join(d.get("tools", [])))
 print("1" if "mcps" in d else "0")
 print(" ".join(d.get("mcps", [])))
+print(" ".join(d.get("conflicts", [])))
 PY
-)"
+}
+
+state_files_tsv() {
+  python3 - "$1" <<'PY'
+import io, json, sys
+with io.open(sys.argv[1], encoding="utf-8-sig") as fh:
+    d = json.load(fh)
+for k, v in d.get("files", {}).items():
+    print("%s\t%s" % (k, v))
+PY
+}
+
+read_state() {
+  : > "$WORK/state_old.tsv"
+  : > "$WORK/state_new.tsv"
+  [ "$STATE_ENABLED" = "1" ] || return 0
+
+  local sf; sf="$(state_path)"
+  [ -f "$sf" ] || return 0
+
+  local meta
+  meta="$(state_meta_json "$sf" 2>/dev/null || true)"
+  if [ -z "$meta" ]; then
+    die "Corrupt state file: $sf (delete it to reinstall from scratch)"
+  fi
 
   local schema
   schema="$(printf '%s\n' "$meta" | sed -n 1p)"
@@ -473,17 +495,19 @@ PY
   STATE_TOOLS="$(printf '%s\n' "$meta" | sed -n 6p)"
   STATE_HAS_MCPS="$(printf '%s\n' "$meta" | sed -n 7p)"
   STATE_MCPS="$(printf '%s\n' "$meta" | sed -n 8p)"
+  STATE_CONFLICTS="$(printf '%s\n' "$meta" | sed -n 9p)"
 
-  if [ "${schema:-0}" -gt "$STATE_SCHEMA_SUPPORTED" ]; then
+  case "${schema:-0}" in
+    ''|*[!0-9]*) die "Corrupt state file: $sf (non-numeric schema; delete it to reinstall from scratch)" ;;
+  esac
+
+  if [ "$schema" -gt "$STATE_SCHEMA_SUPPORTED" ]; then
     die "State file schema $schema is newer than this installer supports ($STATE_SCHEMA_SUPPORTED). Update the installer and re-run."
   fi
 
-  python3 - "$sf" <<'PY' > "$WORK/state_old.tsv"
-import json, sys
-d = json.load(open(sys.argv[1]))
-for k, v in d.get("files", {}).items():
-    print("%s\t%s" % (k, v))
-PY
+  if ! state_files_tsv "$sf" > "$WORK/state_old.tsv" 2>/dev/null; then
+    die "Corrupt state file: $sf (delete it to reinstall from scratch)"
+  fi
 
   # Seed this run's state with everything the previous run tracked. Steps that
   # return early (tool not selected, path absent from the pack, settings.local
@@ -898,6 +922,8 @@ PY
   return 0
 }
 
+# For pack JSON that this script itself just wrote with jq or python3. NOT for
+# the state file — see state_meta_json for why that path must use python3.
 validate_json() {
   local f="$1"
   if [ "$MCP_FILTER_MODE" = "jq" ]; then

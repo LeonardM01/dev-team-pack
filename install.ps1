@@ -219,7 +219,10 @@ function Write-PackState {
     updatedAt     = $now
     files         = $files
   }
-  $state | ConvertTo-Json -Depth 5 | Set-Content -Path $STATE_PATH -Encoding UTF8
+  # Set-Content -Encoding UTF8 emits a UTF-8 BOM on Windows PowerShell 5.1, and
+  # install.sh's python3 json.load rejects a leading BOM. Write BOM-less UTF-8.
+  $json = $state | ConvertTo-Json -Depth 5
+  [System.IO.File]::WriteAllText($STATE_PATH, $json, (New-Object System.Text.UTF8Encoding($false)))
   Write-Log "wrote .dev-team-pack.json"
 }
 
