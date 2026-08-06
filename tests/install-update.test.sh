@@ -581,7 +581,39 @@ test_reconfigure_is_not_swallowed_by_up_to_date() {
   teardown_sandbox
 }
 
+test_unfiltered_json_keeps_pack_bytes() {
+  setup_sandbox
+  run_install
+  assert_files_identical "all MCPs selected leaves .mcp.json byte-identical to the pack" \
+    "$TARGET/.mcp.json" "$FIXTURE/.mcp.json"
+  assert_files_identical "all MCPs selected leaves .claude/settings.json byte-identical to the pack" \
+    "$TARGET/.claude/settings.json" "$FIXTURE/.claude/settings.json"
+  run_install
+  assert_out_contains "second run over unfiltered JSON is up to date, not an endless update" \
+    "Already up to date"
+  teardown_sandbox
+}
+
+test_subset_selection_still_filters_mcp_json() {
+  setup_sandbox
+  DEV_TEAM_REPO="$FIXTURE" DEV_TEAM_REF=main DEV_TEAM_MCPS=context7 NO_COLOR=1 \
+    bash "$REPO_ROOT/install.sh" "$TARGET" >"$SANDBOX/out.txt" 2>&1
+  if grep -q 'lean-ctx' "$TARGET/.mcp.json"; then
+    fail "subset selection still filters .mcp.json" "deselected server survived filtering"
+  else
+    ok "subset selection still filters .mcp.json"
+  fi
+  if grep -q 'lean-ctx' "$TARGET/.claude/settings.json"; then
+    fail "subset selection still filters .claude/settings.json" "deselected server survived filtering"
+  else
+    ok "subset selection still filters .claude/settings.json"
+  fi
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
+test_unfiltered_json_keeps_pack_bytes
+test_subset_selection_still_filters_mcp_json
 test_up_to_date_run_relists_unresolved_conflicts
 test_clean_update_omits_conflict_section
 test_reconfigure_is_not_swallowed_by_up_to_date

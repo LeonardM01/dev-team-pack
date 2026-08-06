@@ -36,7 +36,7 @@ $script:Mode      = 'install'
 $script:StateOld  = @{}
 $script:StateNew  = @{}
 $script:Conflicts = New-Object System.Collections.Generic.List[string]
-$script:Counters  = @{ Added = 0; Updated = 0; Kept = 0; Current = 0; Conflict = 0 }
+$script:Counters  = @{ Added = 0; Updated = 0; Kept = 0; Conflict = 0 }
 $script:StateMeta = $null
 
 function Write-Log {
@@ -76,7 +76,18 @@ function Fetch-Pack {
   $hasGit = $null -ne (Get-Command git -ErrorAction SilentlyContinue)
 
   if ($hasGit) {
-    $cloneOutput = git clone -c core.autocrlf=false --depth 1 --branch $REF $REPO_URL "$Work\pack" 2>&1
+    # git clone always writes progress to stderr, even on success. In Windows
+    # PowerShell 5.1 a native command's stderr redirected into a pipeline
+    # becomes an ErrorRecord, and with $ErrorActionPreference = 'Stop' that
+    # raises a terminating NativeCommandError on a SUCCESSFUL clone. Relax the
+    # preference for the duration of the call and rely on $LASTEXITCODE.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      $cloneOutput = git clone -c core.autocrlf=false --depth 1 --branch $REF $REPO_URL "$Work\pack" 2>&1
+    } finally {
+      $ErrorActionPreference = $prevEap
+    }
     if ($LASTEXITCODE -eq 0) {
       return
     }
@@ -184,8 +195,14 @@ function Read-PackState {
   $script:StateMeta = $json
   $script:Mode = 'update'
   if ($json.files) {
+    # Seed StateNew from StateOld: this script has no .cursor merge and no
+    # tool selection, so keys it does not own (every .cursor/* entry a bash
+    # run recorded) would otherwise be dropped from the state file, silently
+    # untracking those files for both installers. Steps that do run overwrite
+    # their seeded entries via Set-StateEntry.
     $json.files.PSObject.Properties | ForEach-Object {
       $script:StateOld[$_.Name] = $_.Value
+      $script:StateNew[$_.Name] = $_.Value
     }
   }
 }
@@ -280,7 +297,7 @@ function Invoke-FileAction {
       }
     }
     'keep-local'  { Set-StateEntry -Key $Key -Hash $rec; $script:Counters.Kept++ }
-    'current'     { Set-StateEntry -Key $Key -Hash $rec; $script:Counters.Current++ }
+    'current'     { Set-StateEntry -Key $Key -Hash $rec }
     'skip-deleted'{ Set-StateEntry -Key $Key -Hash $rec }
     'keep-untracked' {
       if ($script:Mode -eq 'install') { Set-StateEntry -Key $Key -Hash (Get-Sha256File $Dest) }
@@ -296,7 +313,9 @@ function Merge-ClaudeDir {
   $srcBase = Join-Path $Work 'pack\.claude'
   if (-not (Test-Path $srcBase)) { return }
 
-  Get-ChildItem -Path $srcBase -Recurse -File | ForEach-Object {
+  # -Force to match Get-PackVersion's enumeration: without it hidden pack files
+  # are version-hashed but never merged, so the pack looks changed forever.
+  Get-ChildItem -Path $srcBase -Recurse -File -Force | ForEach-Object {
     $srcFile = $_.FullName
     $rel     = $srcFile.Substring($srcBase.Length).TrimStart('\', '/')
     $relNorm = $rel -replace '\\', '/'
@@ -471,7 +490,16 @@ function Run-Analysis {
 
   $promptContent = [System.IO.File]::ReadAllText($promptFile)
 
-  $helpText  = & claude --help 2>&1
+  # Same PS 5.1 hazard as the git clone above: anything claude writes to stderr
+  # would become a terminating NativeCommandError under $ErrorActionPreference
+  # = 'Stop', aborting the install over a help probe.
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $helpText = & claude --help 2>&1
+  } finally {
+    $ErrorActionPreference = $prevEap
+  }
   $extraArgs = if ($helpText -match 'permission-mode') { @('--permission-mode', 'acceptEdits') } else { @() }
 
   Write-Log "Running stack analysis with Claude CLI..."

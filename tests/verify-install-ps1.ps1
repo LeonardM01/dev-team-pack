@@ -5,12 +5,14 @@
 # cannot drive PowerShell, so this script exists to run the equivalent matrix
 # by hand on a machine with pwsh (Windows, or `pwsh` on macOS/Linux). It
 # builds a local git fixture, invokes install.ps1 against it repeatedly, and
-# asserts each of the 12 cases from task-10-brief.md Step 8, plus two
-# regression cases (13, 14) added after review found cross-installer hash
-# divergence bugs: CRLF mangling on Windows clones, and a tree-hash format
-# mismatch in the git-unavailable fallback.
+# asserts each of the 12 cases from task-10-brief.md Step 8, plus five
+# regression cases added after review found cross-installer bugs: CRLF mangling
+# on Windows clones (13), a tree-hash format mismatch in the git-unavailable
+# fallback (14), state keys destroyed by the installer that does not own them
+# (15), a UTF-8 BOM that install.sh could not parse (16), and an unresolved
+# conflict hidden by the up-to-date early exit (17).
 #
-# Cases 11 and 14 shell out to `bash install.sh`, so `bash` must be on PATH
+# Cases 11, 14, 15 and 16 shell out to `bash install.sh`, so `bash` must be on PATH
 # (Git Bash or WSL bash on Windows) in addition to `git` and `pwsh`.
 #
 # Usage:
@@ -69,8 +71,10 @@ function Assert-FilesIdentical {
 function New-Fixture {
   param([string]$Path)
   New-Item -ItemType Directory -Path (Join-Path $Path '.claude/agents') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $Path '.cursor/rules') -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $Path 'scripts') -Force | Out-Null
   Set-Content -Path (Join-Path $Path '.claude/agents/code-reviewer.md') -Value 'v1 reviewer' -NoNewline:$false
+  Set-Content -Path (Join-Path $Path '.cursor/rules/base.mdc') -Value 'v1 rule' -NoNewline:$false
   Set-Content -Path (Join-Path $Path 'CLAUDE.md') -Value 'v1 pack docs' -NoNewline:$false
   Set-Content -Path (Join-Path $Path '.mcp.json') -Value '{ "mcpServers": { "context7": {"command":"c7"} } }' -NoNewline:$false
   Push-Location $Path
@@ -335,6 +339,67 @@ pack_tree_hash
   if ($null -ne $bashHash) { $bashHash = $bashHash.ToString().Trim() }
 
   Assert-Eq "case14 tree hash matches install.sh's pack_tree_hash" $psVersion.Version $bashHash
+
+  Write-Host "`n=== Case 15: install.ps1 carries forward state keys it does not own ==="
+  # install.ps1 has no .cursor merge and no tool selection, so a PowerShell run
+  # over a bash-created target must not drop the .cursor/* keys install.sh
+  # recorded — dropping them permanently untracks those files for BOTH
+  # installers (keep-untracked never re-records in update mode).
+  $Sandbox15 = Join-Path $Sandbox 'case15'
+  New-Item -ItemType Directory -Path $Sandbox15 | Out-Null
+  $env:DEV_TEAM_REPO = $Fixture
+  $env:DEV_TEAM_REF  = 'main'
+  $env:DEV_TEAM_NONINTERACTIVE = '1'
+  $env:NO_COLOR = '1'
+  & bash (Join-Path $RepoRoot 'install.sh') $Sandbox15 2>&1 | Out-Null
+  Remove-Item Env:DEV_TEAM_REPO, Env:DEV_TEAM_REF, Env:DEV_TEAM_NONINTERACTIVE, Env:NO_COLOR -ErrorAction SilentlyContinue
+  $keysBefore = @((Get-StateJson -Target $Sandbox15).files.PSObject.Properties.Name) | Sort-Object
+  Assert-True "case15 bash run recorded a .cursor key" (($keysBefore -join ',') -match '\.cursor/')
+
+  Invoke-Install -Fixture $Fixture -Target $Sandbox15 -Force | Out-Null
+  $keysAfter = @((Get-StateJson -Target $Sandbox15).files.PSObject.Properties.Name) | Sort-Object
+  $dropped = @($keysBefore | Where-Object { $keysAfter -notcontains $_ })
+  Assert-True "case15 PowerShell run drops no keys the bash run recorded" `
+    ($dropped.Count -eq 0) "dropped: $($dropped -join ', ')"
+
+  Write-Host "`n=== Case 16: state file is BOM-less UTF-8 and readable by install.sh ==="
+  # Windows PowerShell 5.1's Set-Content -Encoding UTF8 emits a UTF-8 BOM,
+  # which install.sh's python3 json.load rejects — and jq accepts, so the
+  # friendly "Corrupt state file" guard did not catch it either.
+  $statePath16 = Join-Path $Sandbox15 '.dev-team-pack.json'
+  $bytes16 = [System.IO.File]::ReadAllBytes($statePath16)
+  $hasBom  = ($bytes16.Length -ge 3) -and ($bytes16[0] -eq 0xEF) -and ($bytes16[1] -eq 0xBB) -and ($bytes16[2] -eq 0xBF)
+  Assert-True "case16 install.ps1 wrote no UTF-8 BOM" (-not $hasBom)
+  $env:DEV_TEAM_REPO = $Fixture
+  $env:DEV_TEAM_REF  = 'main'
+  $env:DEV_TEAM_NONINTERACTIVE = '1'
+  $env:NO_COLOR = '1'
+  $out16 = & bash (Join-Path $RepoRoot 'install.sh') $Sandbox15 2>&1
+  $exit16 = $LASTEXITCODE
+  Remove-Item Env:DEV_TEAM_REPO, Env:DEV_TEAM_REF, Env:DEV_TEAM_NONINTERACTIVE, Env:NO_COLOR -ErrorAction SilentlyContinue
+  Assert-Eq "case16 install.sh reads the install.ps1 state file" $exit16 0
+  Assert-True "case16 no python traceback" (-not (($out16 -join "`n") -match 'Traceback \(most recent call last\)'))
+
+  Write-Host "`n=== Case 17: unresolved conflict is recorded and re-listed when up to date ==="
+  $Sandbox17 = Join-Path $Sandbox 'case17'
+  New-Item -ItemType Directory -Path $Sandbox17 | Out-Null
+  Invoke-Install -Fixture $Fixture -Target $Sandbox17 | Out-Null
+  Set-Content -Path (Join-Path $Sandbox17 '.claude/agents/code-reviewer.md') -Value 'local edit 17' -NoNewline
+  Set-Content -Path (Join-Path $Fixture '.claude/agents/code-reviewer.md') -Value 'v17 reviewer'
+  Push-Location $Fixture
+  try { git -c user.email=t@example.com -c user.name=test commit -aqm v17 } finally { Pop-Location }
+  $r17a = Invoke-Install -Fixture $Fixture -Target $Sandbox17
+  Assert-True "case17 conflict reported on the update run" ($r17a.Out -match 'conflict')
+  $state17 = Get-StateJson -Target $Sandbox17
+  Assert-True "case17 conflict recorded in state" `
+    ((@($state17.conflicts) -join ',') -match 'code-reviewer\.md')
+  $r17b = Invoke-Install -Fixture $Fixture -Target $Sandbox17
+  Assert-True "case17 up-to-date run reports up to date" ($r17b.Out -match 'Already up to date')
+  Assert-True "case17 up-to-date run re-lists the unresolved conflict" `
+    ($r17b.Out -match 'Unresolved conflicts from the last run')
+  Invoke-Install -Fixture $Fixture -Target $Sandbox17 -Force | Out-Null
+  $state17b = Get-StateJson -Target $Sandbox17
+  Assert-True "case17 resolved conflict cleared from state" (@($state17b.conflicts).Count -eq 0)
 
 } finally {
   Remove-Item -Recurse -Force $Sandbox -ErrorAction SilentlyContinue

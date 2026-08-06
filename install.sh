@@ -110,7 +110,6 @@ STATE_SCHEMA_SUPPORTED=1
 N_ADDED=0
 N_UPDATED=0
 N_KEPT=0
-N_CURRENT=0
 N_CONFLICT=0
 LAST_ACTION=""
 
@@ -458,7 +457,12 @@ print("1" if "tools" in d else "0")
 print(" ".join(d.get("tools", [])))
 print("1" if "mcps" in d else "0")
 print(" ".join(d.get("mcps", [])))
-print(" ".join(d.get("conflicts", [])))
+# PowerShell 5.1's ConvertTo-Json collapses a one-element array to a scalar in
+# some shapes, so accept a bare string as a single conflict entry.
+conflicts = d.get("conflicts", [])
+if isinstance(conflicts, str):
+    conflicts = [conflicts]
+print(" ".join(c for c in conflicts if isinstance(c, str)))
 PY
 }
 
@@ -970,6 +974,49 @@ validate_json() {
   return 0
 }
 
+json_string_list() {
+  local f="$1" key="$2"
+  if [ "$MCP_FILTER_MODE" = "jq" ]; then
+    jq -r --arg k "$key" \
+      '(.[$k] // empty) | if type == "object" then keys[] elif type == "array" then .[] else empty end' \
+      "$f" 2>/dev/null || true
+  elif [ "$MCP_FILTER_MODE" = "python" ]; then
+    python3 - "$f" "$key" <<'PY' 2>/dev/null || true
+import json, sys
+d = json.load(open(sys.argv[1]))
+v = d.get(sys.argv[2])
+if isinstance(v, dict):
+    for k in v:
+        print(k)
+elif isinstance(v, list):
+    for k in v:
+        if isinstance(k, str):
+            print(k)
+PY
+  fi
+}
+
+# True when every entry already in $1's "$2" list is selected — filtering would
+# remove nothing, so re-serializing the file would only reformat it.
+#
+# That reformatting is what made the two installers oscillate: install.sh
+# rewrote .mcp.json, .cursor/mcp.json and .claude/settings.json through
+# jq/python (indent=2) unconditionally and recorded hash(reformatted), while
+# install.ps1 compares against the pack's raw bytes and would then see an
+# update, rewrite the unformatted original, and hand the inverse update back.
+# Leaving the pack bytes alone when there is nothing to filter makes the common
+# case (all servers selected, which is the only case install.ps1 can produce)
+# converge, and also removes the same divergence between a jq machine and a
+# python3-only machine, since jq and json.dump do not serialize identically.
+filter_is_noop() {
+  local f="$1" key="$2" servers="$3" k
+  if [ "$MCP_FILTER_MODE" = "none" ]; then return 1; fi
+  for k in $(json_string_list "$f" "$key"); do
+    printf ' %s ' "$servers" | grep -qF " $k " || return 1
+  done
+  return 0
+}
+
 stage_filtered_pack() {
   local mcp_src="$WORK/pack/.mcp.json"
   local cursor_mcp_src="$WORK/pack/.cursor/mcp.json"
@@ -977,7 +1024,9 @@ stage_filtered_pack() {
 
   local servers="${SELECTED_MCPS:-}"
 
-  if [ -f "$mcp_src" ]; then
+  if [ -f "$mcp_src" ] && filter_is_noop "$mcp_src" mcpServers "$servers"; then
+    log "staged .mcp.json (nothing filtered out — pack bytes preserved)"
+  elif [ -f "$mcp_src" ]; then
     local mcp_tmp="$WORK/mcp_filtered.json"
 
     if [ -z "$servers" ]; then
@@ -1009,7 +1058,9 @@ json.dump(data, open('$mcp_tmp', 'w'), indent=2)
     fi
   fi
 
-  if [ -f "$cursor_mcp_src" ]; then
+  if [ -f "$cursor_mcp_src" ] && filter_is_noop "$cursor_mcp_src" mcpServers "$servers"; then
+    log "staged .cursor/mcp.json (nothing filtered out — pack bytes preserved)"
+  elif [ -f "$cursor_mcp_src" ]; then
     local cursor_tmp="$WORK/cursor_mcp_filtered.json"
 
     if [ -z "$servers" ]; then
@@ -1038,7 +1089,9 @@ json.dump(data, open('$cursor_tmp', 'w'), indent=2)
     fi
   fi
 
-  if [ -f "$settings_src" ]; then
+  if [ -f "$settings_src" ] && filter_is_noop "$settings_src" enabledMcpjsonServers "$servers"; then
+    log "staged .claude/settings.json (nothing filtered out — pack bytes preserved)"
+  elif [ -f "$settings_src" ]; then
     local settings_tmp="$WORK/settings_filtered.json"
 
     if [ -z "$servers" ]; then
@@ -1132,7 +1185,6 @@ apply_file_action() {
       ;;
     current)
       record_state_entry "$rel" "$rec"
-      N_CURRENT=$((N_CURRENT + 1))
       ;;
     skip-deleted)
       record_state_entry "$rel" "$rec"
