@@ -599,6 +599,92 @@ test_up_to_date_run_relists_unresolved_conflicts() {
   teardown_sandbox
 }
 
+test_conflict_in_skipped_step_is_carried_forward() {
+  setup_sandbox
+  run_install
+  printf 'mine\n'    > "$TARGET/.cursor/rules/base.mdc"
+  printf 'v2 rule\n' > "$FIXTURE/.cursor/rules/base.mdc"
+  fixture_commit v2
+  run_install
+  assert_eq "cursor conflict is recorded" \
+    "$(state_field conflicts)" '[".cursor/rules/base.mdc"]'
+
+  printf 'v3 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v3
+  run_install_with_tools claude
+  assert_eq "conflict from the skipped cursor step survives in state" \
+    "$(state_field conflicts)" '[".cursor/rules/base.mdc"]'
+  assert_file_is "the carried-forward conflict is still the local version" \
+    "$TARGET/.cursor/rules/base.mdc" "mine"
+
+  run_install_with_tools claude
+  assert_out_contains "up-to-date run after the skipped step still lists the conflict" \
+    "conflict: .cursor/rules/base.mdc"
+  teardown_sandbox
+}
+
+test_conflicting_path_with_a_space_round_trips() {
+  setup_sandbox
+  printf 'v1 spaced\n' > "$FIXTURE/.claude/agents/my agent.md"
+  fixture_commit v1-spaced
+  run_install
+  printf 'mine\n'      > "$TARGET/.claude/agents/my agent.md"
+  printf 'v2 spaced\n' > "$FIXTURE/.claude/agents/my agent.md"
+  fixture_commit v2-spaced
+  run_install
+  assert_eq "conflicting path with a space is one state entry" \
+    "$(state_field conflicts)" '[".claude/agents/my agent.md"]'
+  run_install
+  assert_out_contains "up-to-date run re-lists the spaced path intact" \
+    "conflict: .claude/agents/my agent.md"
+  teardown_sandbox
+}
+
+test_conflict_resolved_by_local_revert_is_dropped() {
+  setup_sandbox
+  run_install
+  printf 'mine\n'        > "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_eq "conflict recorded before the revert" \
+    "$(state_field conflicts)" '[".claude/agents/code-reviewer.md"]'
+
+  printf 'v1 reviewer\n' > "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v3 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v3
+  run_install
+  assert_file_is "reverted file takes the upstream update" \
+    "$TARGET/.claude/agents/code-reviewer.md" "v3 reviewer"
+  assert_eq "conflict resolved by local revert is dropped from state" \
+    "$(state_field conflicts)" '[]'
+  run_install
+  assert_out_lacks "up-to-date run does not re-list the resolved conflict" \
+    "conflict: .claude/agents/code-reviewer.md"
+  teardown_sandbox
+}
+
+test_conflict_resolved_by_upstream_revert_is_dropped() {
+  setup_sandbox
+  run_install
+  printf 'mine\n'        > "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_eq "conflict recorded before upstream reverts" \
+    "$(state_field conflicts)" '[".claude/agents/code-reviewer.md"]'
+
+  printf 'v1 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  printf 'v3 architect\n' > "$FIXTURE/.claude/agents/code-architect.md"
+  fixture_commit v3
+  run_install
+  assert_file_is "upstream revert leaves the local edit in place" \
+    "$TARGET/.claude/agents/code-reviewer.md" "mine"
+  assert_eq "conflict resolved by upstream revert is dropped from state" \
+    "$(state_field conflicts)" '[]'
+  teardown_sandbox
+}
+
 test_clean_update_omits_conflict_section() {
   setup_sandbox
   run_install
@@ -656,6 +742,10 @@ printf 'install-update tests\n'
 test_unfiltered_json_keeps_pack_bytes
 test_subset_selection_still_filters_mcp_json
 test_up_to_date_run_relists_unresolved_conflicts
+test_conflict_in_skipped_step_is_carried_forward
+test_conflicting_path_with_a_space_round_trips
+test_conflict_resolved_by_local_revert_is_dropped
+test_conflict_resolved_by_upstream_revert_is_dropped
 test_clean_update_omits_conflict_section
 test_reconfigure_is_not_swallowed_by_up_to_date
 test_state_file_with_bom_and_crlf_is_read

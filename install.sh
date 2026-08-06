@@ -108,7 +108,6 @@ STATE_TOOLS=""
 STATE_MCPS=""
 STATE_HAS_TOOLS=0
 STATE_HAS_MCPS=0
-STATE_CONFLICTS=""
 STATE_SCHEMA_SUPPORTED=1
 
 N_ADDED=0
@@ -299,7 +298,14 @@ make_workdir() {
   cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
   trap cleanup EXIT INT TERM HUP
   WORK="$(mktemp -d)"
+  # conflicts.txt   — conflicts this run observed and left unresolved
+  # conflicts_prev  — conflicts the previous run recorded, seeded by read_state
+  # conflicts_res   — keys this run classified as anything but an open conflict
+  # write_state persists fresh + (prev - resolved), so a conflict in a step that
+  # this run skipped survives, while one that genuinely resolved is dropped.
   : > "$WORK/conflicts.txt"
+  : > "$WORK/conflicts_prev.txt"
+  : > "$WORK/conflicts_resolved.txt"
 }
 
 fetch_pack() {
@@ -462,12 +468,25 @@ print("1" if "tools" in d else "0")
 print(" ".join(d.get("tools", [])))
 print("1" if "mcps" in d else "0")
 print(" ".join(d.get("mcps", [])))
+PY
+}
+
+# Conflicts travel one-per-line through a file, never through a space-joined
+# shell variable: a recorded path may contain spaces or glob metacharacters, and
+# `for c in $VAR` would word-split and pathname-expand it.
+state_conflicts_list() {
+  python3 - "$1" <<'PY'
+import io, json, sys
+with io.open(sys.argv[1], encoding="utf-8-sig") as fh:
+    d = json.load(fh)
 # PowerShell 5.1's ConvertTo-Json collapses a one-element array to a scalar in
 # some shapes, so accept a bare string as a single conflict entry.
 conflicts = d.get("conflicts", [])
 if isinstance(conflicts, str):
     conflicts = [conflicts]
-print(" ".join(c for c in conflicts if isinstance(c, str)))
+for c in conflicts:
+    if isinstance(c, str) and c.strip():
+        print(c)
 PY
 }
 
@@ -504,7 +523,6 @@ read_state() {
   STATE_TOOLS="$(printf '%s\n' "$meta" | sed -n 6p)"
   STATE_HAS_MCPS="$(printf '%s\n' "$meta" | sed -n 7p)"
   STATE_MCPS="$(printf '%s\n' "$meta" | sed -n 8p)"
-  STATE_CONFLICTS="$(printf '%s\n' "$meta" | sed -n 9p)"
 
   # No :-0 default here: state_meta_json prints "0" for an absent schema key, so
   # the only way $schema is empty is an explicitly empty value in the file. With
@@ -530,6 +548,15 @@ read_state() {
   # (keep-untracked does not record in MODE=update). write_state is
   # last-write-wins per key, so any step that does run overwrites its seed.
   cp "$WORK/state_old.tsv" "$WORK/state_new.tsv"
+
+  # Same reasoning for the conflicts list: a conflict recorded by a step that
+  # this run skips is never re-observed, and conflicts.txt only ever holds what
+  # this run saw. Without this seed the file stays conflicted on disk while the
+  # state file forgets it, and nothing ever tells the user again. Steps that do
+  # run call resolve_conflict_entry, which removes the seeded entry.
+  if ! state_conflicts_list "$sf" > "$WORK/conflicts_prev.txt" 2>/dev/null; then
+    : > "$WORK/conflicts_prev.txt"
+  fi
 
   STATE_PRESENT=1
   MODE="update"
@@ -569,21 +596,21 @@ print_up_to_date() {
 # The version in the state file advances even on a run that left conflicts, so
 # "Already up to date" alone would hide files that are still stale. Re-list them.
 print_outstanding_conflicts() {
-  [ -n "$STATE_CONFLICTS" ] || return 0
+  [ -s "$WORK/conflicts_prev.txt" ] || return 0
   local c
   if [ "$UI_RICH" = "1" ]; then
     printf '   %sUnresolved conflicts from the last run (still your version):%s\n' \
       "$C_YELLOW" "$C_RESET"
-    for c in $STATE_CONFLICTS; do
+    while IFS= read -r c; do
       printf '     %s! %s%s\n' "$C_YELLOW" "$c" "$C_RESET"
-    done
+    done < "$WORK/conflicts_prev.txt"
     printf '\n   %sRe-run with --force to overwrite them with the pack version.%s\n\n' \
       "$C_DIM" "$C_RESET"
   else
     printf '[dev-team-pack] Unresolved conflicts from the last run:\n'
-    for c in $STATE_CONFLICTS; do
+    while IFS= read -r c; do
       printf '  conflict: %s\n' "$c"
-    done
+    done < "$WORK/conflicts_prev.txt"
     printf '  Re-run with --force to overwrite them with the pack version.\n'
   fi
 }
@@ -596,6 +623,14 @@ state_hash_for() {
 record_state_entry() {
   [ -n "${2:-}" ] || return 0
   printf '%s\t%s\n' "$1" "$2" >> "$WORK/state_new.tsv"
+}
+
+# Called for every key a step classified as anything other than an open
+# conflict — including a forced overwrite. Without this a conflict carried
+# forward by read_state would stick forever once it had been resolved.
+resolve_conflict_entry() {
+  [ -n "${1:-}" ] || return 0
+  printf '%s\n' "$1" >> "$WORK/conflicts_resolved.txt"
 }
 
 write_state() {
@@ -612,10 +647,11 @@ write_state() {
 
   python3 - "$sf" "$WORK/state_new.tsv" "$REPO_URL" "$REF" "$PACK_VERSION" \
       "$PACK_VERSION_SOURCE" "$installed_at" "$now" "$SELECTED_TOOLS" "$SELECTED_MCPS" \
-      "$WORK/conflicts.txt" <<'PY'
+      "$WORK/conflicts.txt" "$WORK/conflicts_prev.txt" "$WORK/conflicts_resolved.txt" <<'PY'
 import json, sys, io
 
-(sf, tsv, repo, ref, version, vsrc, installed_at, now, tools, mcps, cf) = sys.argv[1:12]
+(sf, tsv, repo, ref, version, vsrc, installed_at, now, tools, mcps,
+ cf, prevf, resf) = sys.argv[1:14]
 
 files = {}
 with io.open(tsv, encoding="utf-8") as fh:
@@ -626,12 +662,24 @@ with io.open(tsv, encoding="utf-8") as fh:
         k, _, v = line.partition("\t")
         files[k] = v
 
+
+def read_keys(path):
+    out = []
+    with io.open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                out.append(line)
+    return out
+
+
+# Fresh conflicts always win. A conflict the previous run recorded survives only
+# if no step this run reclassified it (skipped step) — if one did, it resolved.
+resolved = set(read_keys(resf))
 conflicts = []
-with io.open(cf, encoding="utf-8") as fh:
-    for line in fh:
-        line = line.strip()
-        if line and line not in conflicts:
-            conflicts.append(line)
+for c in read_keys(cf) + [p for p in read_keys(prevf) if p not in resolved]:
+    if c not in conflicts:
+        conflicts.append(c)
 
 state = {
     "schema": 1,
@@ -1205,6 +1253,9 @@ apply_file_action() {
       N_KEPT=$((N_KEPT + 1))
       ;;
   esac
+  if [ "$action" != "conflict" ] || [ "$FORCE" = "1" ]; then
+    resolve_conflict_entry "$rel"
+  fi
   LAST_ACTION="$action"
 }
 
@@ -1303,6 +1354,7 @@ merge_claude_md() {
   if [ ! -f "$target_md" ]; then
     printf '%s\n' "$block" > "$target_md"
     record_state_entry "$key" "$pack_hash"
+    resolve_conflict_entry "$key"
     log "created CLAUDE.md with dev-team block"
     return 0
   fi
@@ -1310,6 +1362,7 @@ merge_claude_md() {
   if ! grep -qxF "$begin_marker" "$target_md"; then
     printf '\n\n---\n\n%s\n' "$block" >> "$target_md"
     record_state_entry "$key" "$pack_hash"
+    resolve_conflict_entry "$key"
     log "appended dev-team block to existing CLAUDE.md"
     return 0
   fi
@@ -1323,12 +1376,14 @@ merge_claude_md() {
       record_state_entry "$key" "$cur"
       log "adopted existing dev-team block"
     fi
+    resolve_conflict_entry "$key"
     STEP_STATUS=skip
     return 0
   fi
 
   if [ "$cur" = "$pack_hash" ]; then
     record_state_entry "$key" "$rec"
+    resolve_conflict_entry "$key"
     STEP_STATUS=skip
     log "dev-team block already current"
     return 0
@@ -1383,6 +1438,7 @@ merge_claude_md() {
 
   cp "$tmp" "$target_md"
   record_state_entry "$key" "$pack_hash"
+  resolve_conflict_entry "$key"
   N_UPDATED=$((N_UPDATED + 1))
   log "updated dev-team block in CLAUDE.md"
 }

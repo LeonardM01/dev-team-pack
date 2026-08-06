@@ -36,6 +36,12 @@ $script:Mode      = 'install'
 $script:StateOld  = @{}
 $script:StateNew  = @{}
 $script:Conflicts = New-Object System.Collections.Generic.List[string]
+# Conflicts recorded by the previous run, and keys this run reclassified as
+# something other than an open conflict. Write-PackState persists
+# Conflicts + (PrevConflicts - ResolvedConflicts), so a conflict in a step this
+# run did not reach survives, while one that genuinely resolved is dropped.
+$script:PrevConflicts     = New-Object System.Collections.Generic.List[string]
+$script:ResolvedConflicts = New-Object System.Collections.Generic.List[string]
 $script:Counters  = @{ Added = 0; Updated = 0; Kept = 0; Conflict = 0 }
 $script:StateMeta = $null
 
@@ -194,6 +200,13 @@ function Read-PackState {
   }
   $script:StateMeta = $json
   $script:Mode = 'update'
+  if ($json.conflicts) {
+    # ConvertTo-Json collapses a one-element array to a scalar in some shapes,
+    # so normalise to an array before enumerating.
+    foreach ($c in @($json.conflicts)) {
+      if (($c -is [string]) -and $c.Trim()) { [void]$script:PrevConflicts.Add($c) }
+    }
+  }
   if ($json.files) {
     # Seed StateNew from StateOld: this script has no .cursor merge and no
     # tool selection, so keys it does not own (every .cursor/* entry a bash
@@ -218,6 +231,16 @@ function Set-StateEntry {
   if ($Hash) { $script:StateNew[$Key] = $Hash }
 }
 
+# Called for every key a step classified as anything other than an open
+# conflict, including a forced overwrite. Without this a conflict carried
+# forward by Read-PackState would stick forever once it had been resolved.
+function Resolve-ConflictEntry {
+  param([string]$Key)
+  if ($Key -and (-not $script:ResolvedConflicts.Contains($Key))) {
+    [void]$script:ResolvedConflicts.Add($Key)
+  }
+}
+
 function Write-PackState {
   param([string]$Version, [string]$Source)
   $now = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -225,6 +248,18 @@ function Write-PackState {
 
   $files = [ordered]@{}
   $script:StateNew.Keys | Sort-Object | ForEach-Object { $files[$_] = $script:StateNew[$_] }
+
+  # Fresh conflicts always win; a previously recorded one survives only if no
+  # step this run reclassified it.
+  $conflicts = New-Object System.Collections.Generic.List[string]
+  foreach ($c in $script:Conflicts) {
+    if (-not $conflicts.Contains($c)) { [void]$conflicts.Add($c) }
+  }
+  foreach ($c in $script:PrevConflicts) {
+    if ((-not $script:ResolvedConflicts.Contains($c)) -and (-not $conflicts.Contains($c))) {
+      [void]$conflicts.Add($c)
+    }
+  }
 
   $state = [ordered]@{
     schema        = 1
@@ -234,7 +269,7 @@ function Write-PackState {
     versionSource = $Source
     installedAt   = $installedAt
     updatedAt     = $now
-    conflicts     = @($script:Conflicts | Sort-Object)
+    conflicts     = @($conflicts | Sort-Object)
     files         = $files
   }
   # Set-Content -Encoding UTF8 emits a UTF-8 BOM on Windows PowerShell 5.1, and
@@ -304,6 +339,7 @@ function Invoke-FileAction {
       $script:Counters.Kept++
     }
   }
+  if (($action -ne 'conflict') -or $FORCE) { Resolve-ConflictEntry -Key $Key }
   return $action
 }
 
@@ -358,6 +394,7 @@ function Merge-ClaudeMd {
   if (-not (Test-Path $targetMd)) {
     [System.IO.File]::WriteAllText($targetMd, "$block`n")
     Set-StateEntry -Key $key -Hash $packHash
+    Resolve-ConflictEntry -Key $key
     Write-Log "add  CLAUDE.md"
     return
   }
@@ -371,6 +408,7 @@ function Merge-ClaudeMd {
   if (-not ($lines | Where-Object { $_ -ceq $beginMarker })) {
     [System.IO.File]::WriteAllText($targetMd, $existing + "`n`n---`n`n" + $block + "`n")
     Set-StateEntry -Key $key -Hash $packHash
+    Resolve-ConflictEntry -Key $key
     Write-Log "add  CLAUDE.md (appended dev-team block)"
     return
   }
@@ -393,12 +431,14 @@ function Merge-ClaudeMd {
 
   if (-not $rec) {
     if ($script:Mode -eq 'install') { Set-StateEntry -Key $key -Hash $currentHash }
+    Resolve-ConflictEntry -Key $key
     Write-Log "skip CLAUDE.md (block not tracked)"
     return
   }
 
   if ($currentHash -eq $packHash) {
     Set-StateEntry -Key $key -Hash $rec
+    Resolve-ConflictEntry -Key $key
     Write-Log "skip CLAUDE.md (block already current)"
     return
   }
@@ -419,6 +459,7 @@ function Merge-ClaudeMd {
 
   [System.IO.File]::WriteAllText($targetMd, $merged)
   Set-StateEntry -Key $key -Hash $packHash
+  Resolve-ConflictEntry -Key $key
   $script:Counters.Updated++
   Write-Log "updated CLAUDE.md dev-team block"
 }
@@ -554,9 +595,9 @@ try {
     Write-Log "Already up to date. Run with -Force to reinstall."
     # The recorded version advances even on a run that left conflicts, so
     # "Already up to date" alone would hide files that are still stale.
-    if ($script:StateMeta.conflicts -and @($script:StateMeta.conflicts).Count -gt 0) {
+    if ($script:PrevConflicts.Count -gt 0) {
       Write-Log "Unresolved conflicts from the last run:"
-      @($script:StateMeta.conflicts) | ForEach-Object { Write-Host "    ! $_" }
+      $script:PrevConflicts | ForEach-Object { Write-Host "    ! $_" }
       Write-Log "Re-run with -Force to overwrite them with the pack version."
     }
   } else {
