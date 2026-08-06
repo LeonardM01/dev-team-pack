@@ -525,6 +525,10 @@ read_state() {
 check_up_to_date() {
   [ "$MODE" = "update" ] || return 1
   [ "$FORCE" = "1" ] && return 1
+  # --reconfigure exists to change the tool/MCP selection; the version check
+  # must not swallow it, or the documented way to change selection is a no-op
+  # on an install that is already at the latest version.
+  [ "$RECONFIGURE" = "1" ] && return 1
   [ -n "$STATE_VERSION" ] || return 1
   [ -n "$PACK_VERSION" ] || return 1
   [ "$STATE_VERSION" = "$PACK_VERSION" ] || return 1
@@ -545,6 +549,29 @@ print_up_to_date() {
     printf '[dev-team-pack] installed: %s (%s)\n' "$short_installed" "$STATE_REF"
     printf '[dev-team-pack] available: %s (%s)\n' "$short_available" "$REF"
     printf '[dev-team-pack] Already up to date. Run with --force to reinstall.\n'
+  fi
+  print_outstanding_conflicts
+}
+
+# The version in the state file advances even on a run that left conflicts, so
+# "Already up to date" alone would hide files that are still stale. Re-list them.
+print_outstanding_conflicts() {
+  [ -n "$STATE_CONFLICTS" ] || return 0
+  local c
+  if [ "$UI_RICH" = "1" ]; then
+    printf '   %sUnresolved conflicts from the last run (still your version):%s\n' \
+      "$C_YELLOW" "$C_RESET"
+    for c in $STATE_CONFLICTS; do
+      printf '     %s! %s%s\n' "$C_YELLOW" "$c" "$C_RESET"
+    done
+    printf '\n   %sRe-run with --force to overwrite them with the pack version.%s\n\n' \
+      "$C_DIM" "$C_RESET"
+  else
+    printf '[dev-team-pack] Unresolved conflicts from the last run:\n'
+    for c in $STATE_CONFLICTS; do
+      printf '  conflict: %s\n' "$c"
+    done
+    printf '  Re-run with --force to overwrite them with the pack version.\n'
   fi
 }
 
@@ -571,10 +598,11 @@ write_state() {
   installed_at="${STATE_INSTALLED_AT:-$now}"
 
   python3 - "$sf" "$WORK/state_new.tsv" "$REPO_URL" "$REF" "$PACK_VERSION" \
-      "$PACK_VERSION_SOURCE" "$installed_at" "$now" "$SELECTED_TOOLS" "$SELECTED_MCPS" <<'PY'
+      "$PACK_VERSION_SOURCE" "$installed_at" "$now" "$SELECTED_TOOLS" "$SELECTED_MCPS" \
+      "$WORK/conflicts.txt" <<'PY'
 import json, sys, io
 
-(sf, tsv, repo, ref, version, vsrc, installed_at, now, tools, mcps) = sys.argv[1:11]
+(sf, tsv, repo, ref, version, vsrc, installed_at, now, tools, mcps, cf) = sys.argv[1:12]
 
 files = {}
 with io.open(tsv, encoding="utf-8") as fh:
@@ -584,6 +612,13 @@ with io.open(tsv, encoding="utf-8") as fh:
             continue
         k, _, v = line.partition("\t")
         files[k] = v
+
+conflicts = []
+with io.open(cf, encoding="utf-8") as fh:
+    for line in fh:
+        line = line.strip()
+        if line and line not in conflicts:
+            conflicts.append(line)
 
 state = {
     "schema": 1,
@@ -595,6 +630,7 @@ state = {
     "updatedAt": now,
     "tools": tools.split(),
     "mcps": mcps.split(),
+    "conflicts": sorted(conflicts),
     "files": dict(sorted(files.items())),
 }
 with io.open(sf, "w", encoding="utf-8") as fh:

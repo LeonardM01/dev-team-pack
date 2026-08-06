@@ -217,6 +217,7 @@ function Write-PackState {
     versionSource = $Source
     installedAt   = $installedAt
     updatedAt     = $now
+    conflicts     = @($script:Conflicts | Sort-Object)
     files         = $files
   }
   # Set-Content -Encoding UTF8 emits a UTF-8 BOM on Windows PowerShell 5.1, and
@@ -523,6 +524,13 @@ try {
   if ($upToDate) {
     Write-Log "installed: $($script:StateMeta.version) ($($script:StateMeta.ref))"
     Write-Log "Already up to date. Run with -Force to reinstall."
+    # The recorded version advances even on a run that left conflicts, so
+    # "Already up to date" alone would hide files that are still stale.
+    if ($script:StateMeta.conflicts -and @($script:StateMeta.conflicts).Count -gt 0) {
+      Write-Log "Unresolved conflicts from the last run:"
+      @($script:StateMeta.conflicts) | ForEach-Object { Write-Host "    ! $_" }
+      Write-Log "Re-run with -Force to overwrite them with the pack version."
+    }
   } else {
     Merge-ClaudeDir -Work $WORK
     Copy-McpJson    -Work $WORK

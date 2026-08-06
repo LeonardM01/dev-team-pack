@@ -534,7 +534,57 @@ json.dump(d, open(sf, "w"), indent=2)
   teardown_sandbox
 }
 
+test_up_to_date_run_relists_unresolved_conflicts() {
+  setup_sandbox
+  run_install
+  printf 'mine\n' > "$TARGET/.claude/agents/code-reviewer.md"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_out_contains "conflict run reports the conflict" "1 conflicts"
+  assert_eq "conflict is recorded in state" \
+    "$(state_field conflicts)" '[".claude/agents/code-reviewer.md"]'
+  run_install
+  assert_out_contains "up-to-date run still reports up to date" "Already up to date"
+  assert_out_contains "up-to-date run re-lists the unresolved conflict" \
+    "conflict: .claude/agents/code-reviewer.md"
+  run_install --force
+  assert_file_is "force resolves the conflict" \
+    "$TARGET/.claude/agents/code-reviewer.md" "v2 reviewer"
+  assert_eq "resolved conflict is cleared from state" "$(state_field conflicts)" '[]'
+  run_install
+  assert_out_lacks "up-to-date run after resolution lists nothing" \
+    "Unresolved conflicts from the last run"
+  teardown_sandbox
+}
+
+test_clean_update_omits_conflict_section() {
+  setup_sandbox
+  run_install
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_out_contains "clean update reports zero conflicts" "0 conflicts"
+  assert_out_lacks "clean update omits the conflict list heading" "conflict:"
+  assert_out_lacks "clean update omits the force hint" \
+    "Re-run with --force to overwrite conflicts."
+  teardown_sandbox
+}
+
+test_reconfigure_is_not_swallowed_by_up_to_date() {
+  setup_sandbox
+  run_install_with_tools claude
+  run_install_with_tools claude,cursor --reconfigure
+  assert_out_lacks "--reconfigure bypasses the up-to-date early exit" "Already up to date"
+  assert_file_is "--reconfigure applies the widened tool selection" \
+    "$TARGET/.cursor/rules/base.mdc" "v1 rule"
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
+test_up_to_date_run_relists_unresolved_conflicts
+test_clean_update_omits_conflict_section
+test_reconfigure_is_not_swallowed_by_up_to_date
 test_state_file_with_bom_and_crlf_is_read
 test_non_numeric_schema_dies_with_friendly_message
 test_state_is_superset_when_cursor_deselected
