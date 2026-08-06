@@ -529,8 +529,49 @@ json.dump(d, open(sf, "w"), indent=2)
   fixture_commit v2
   run_install
   assert_out_contains "non-numeric schema reports the friendly error" "Corrupt state file"
+  # bash 3.2 says "integer expression expected", bash 5.x says "integer expected";
+  # match the substring common to both so this discriminates on every runner.
   assert_out_lacks "non-numeric schema does not leak a raw shell error" \
-    "integer expression expected"
+    "integer expected"
+  teardown_sandbox
+}
+
+test_empty_schema_dies_with_friendly_message() {
+  setup_sandbox
+  run_install
+  python3 -c '
+import json, sys
+sf = sys.argv[1]
+d = json.load(open(sf))
+d["schema"] = ""
+json.dump(d, open(sf, "w"), indent=2)
+' "$TARGET/.dev-team-pack.json"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_out_contains "empty-string schema reports the friendly error" "Corrupt state file"
+  assert_out_lacks "empty-string schema does not leak a raw shell error" \
+    "integer expected"
+  teardown_sandbox
+}
+
+test_absent_schema_key_is_accepted() {
+  setup_sandbox
+  run_install
+  python3 -c '
+import json, sys
+sf = sys.argv[1]
+d = json.load(open(sf))
+d.pop("schema", None)
+json.dump(d, open(sf, "w"), indent=2)
+' "$TARGET/.dev-team-pack.json"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install
+  assert_out_lacks "absent schema key is not treated as corrupt" "Corrupt state file"
+  assert_eq "absent schema key still exits 0" "$(install_exit_code)" "0"
+  assert_file_is "absent schema key still applies the update" \
+    "$TARGET/.claude/agents/code-reviewer.md" "v2 reviewer"
   teardown_sandbox
 }
 
@@ -619,6 +660,8 @@ test_clean_update_omits_conflict_section
 test_reconfigure_is_not_swallowed_by_up_to_date
 test_state_file_with_bom_and_crlf_is_read
 test_non_numeric_schema_dies_with_friendly_message
+test_empty_schema_dies_with_friendly_message
+test_absent_schema_key_is_accepted
 test_state_is_superset_when_cursor_deselected
 test_state_is_superset_when_claude_deselected
 test_fresh_install_copies_pack_files

@@ -506,7 +506,11 @@ read_state() {
   STATE_MCPS="$(printf '%s\n' "$meta" | sed -n 8p)"
   STATE_CONFLICTS="$(printf '%s\n' "$meta" | sed -n 9p)"
 
-  case "${schema:-0}" in
+  # No :-0 default here: state_meta_json prints "0" for an absent schema key, so
+  # the only way $schema is empty is an explicitly empty value in the file. With
+  # a default the case below passed and the -gt comparison below leaked a raw
+  # `[: : integer expected` to stderr.
+  case "$schema" in
     ''|*[!0-9]*) die "Corrupt state file: $sf (non-numeric schema; delete it to reinstall from scratch)" ;;
   esac
 
