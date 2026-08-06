@@ -28,7 +28,7 @@ iwr -useb https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/instal
 1. Clones dev-team-pack into a temp directory (shallow `git clone`; falls back to the GitHub codeload tarball if `git` is not available).
 2. **Prompts you to select AI tool targets** (`claude`, `cursor`, or both) and **which MCP servers** to enable (any subset of `context7`, `figma`, `playwright`, `atlassian`, `linear`, `lean-ctx`, `XcodeBuildMCP`). Only the selected targets and servers are installed. Use env vars (see Configuration) to skip prompts entirely.
 3. Copies `.claude/` (agents, skills, settings) into the project for the selected tool targets. `agent-memory/` is always preserved. Files already in the project that this pack did not write are left alone; see [Updating](#updating) for what happens to pack files on a re-run.
-4. Copies `.mcp.json` to the project root containing only the selected MCP servers (skipped if one already exists).
+4. Copies `.mcp.json` to the project root containing only the selected MCP servers. On a re-run it is updated, kept or reported as a conflict like any other pack file — see [Updating](#updating).
 5. Appends the pack's `CLAUDE.md` to the project's `CLAUDE.md`, wrapped in `<!-- dev-team-pack:begin -->` / `<!-- dev-team-pack:end -->` markers. On a re-run the block is updated in place if you haven't edited it, or reported as a conflict if you have — see [Updating](#updating).
 6. Runs `scripts/setup-env.sh` to install/verify the global tool stack: `lean-ctx`, `claude-mem`, and the Superpowers Claude Code plugin.
 7. If the `claude` CLI is installed, runs a one-shot analysis that detects the project's tech stack and rewrites the Tech Stack + Commands sections of the dev-team block in `CLAUDE.md` to reflect the actual `package.json` scripts (or equivalent).
@@ -53,13 +53,33 @@ The installer records what it wrote in `.dev-team-pack.json`. On a re-run it:
 | Flag | Effect |
 | --- | --- |
 | `--force` | Reinstall even if up to date; overwrite conflicting files |
-| `--reconfigure` | Re-open the tool and MCP prompts |
+| `--reconfigure` | Re-open the tool and MCP prompts, and skip the up-to-date early exit |
 
 Environment equivalents: `DEV_TEAM_FORCE=1` and `DEV_TEAM_RECONFIGURE=1`.
+
+A run that leaves a conflict records it in `.dev-team-pack.json`, and every
+later run re-lists it — including runs that are otherwise up to date — until
+you resolve it by hand or with `--force`.
+
+**Resetting the baseline.** `--force` overwrites *conflicts*, but it will not
+adopt a file the installer never wrote: untracked files are always left alone
+by design. If you want the installer to take ownership of a file it is
+currently ignoring, delete `.dev-team-pack.json` and re-run. The next run
+records everything on disk as the new baseline.
 
 Windows uses `-Force` and `-Reconfigure` on `install.ps1`. `install.ps1` implements a
 subset of `install.sh` and has no tool or MCP selection prompts at all, so
 `-Reconfigure` is accepted but is currently a no-op there.
+
+> **Do not alternate the two installers against the same target with a
+> non-default MCP selection.** `install.ps1` has no MCP filtering, so it always
+> installs the full server list. If `install.sh` installed a filtered
+> `.mcp.json`, `.cursor/mcp.json` or `.claude/settings.json`, each installer
+> will see the other's version as an upstream change and rewrite it on every
+> run. With the default (all servers) selection the two agree and can be
+> alternated safely. `install.ps1` also has no `.cursor/` merge: it preserves
+> the `.cursor/*` entries a bash run recorded, but only `install.sh` updates
+> those files.
 
 Commit `.dev-team-pack.json` so everyone on the team shares the same baseline.
 
@@ -110,7 +130,7 @@ DEV_TEAM_TOOLS=claude DEV_TEAM_MCPS=context7,lean-ctx curl -fsSL https://dev.leo
 
 Re-running the installer is safe. See [Updating](#updating) for exactly what happens to each file on a re-run.
 
-To change your tool target or MCP selection, re-run with `--reconfigure` (`-Reconfigure` on Windows, though it is currently a no-op in `install.ps1`) instead of deleting files.
+To change your tool target or MCP selection, re-run with `--reconfigure` (`-Reconfigure` on Windows, though it is currently a no-op in `install.ps1`) instead of deleting files. `--reconfigure` also bypasses the up-to-date early exit, so it works even when you already have the latest pack version.
 
 ## Security note
 

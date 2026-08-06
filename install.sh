@@ -41,6 +41,10 @@ Examples:
 
 Notes:
   - To change your tool/MCP selection on a re-run, use --reconfigure.
+  - Files the installer never wrote are never adopted, and --force does not
+    change that. To make the installer take ownership of a file it is currently
+    leaving alone, delete TARGET_DIR/.dev-team-pack.json and re-run: the next
+    run records everything on disk as the baseline again.
 
 Update behavior:
   The installer records what it wrote in TARGET_DIR/.dev-team-pack.json. On a
@@ -207,11 +211,12 @@ preamble() {
     printf '  %ssource%s  %s @ %s\n\n' "$C_DIM" "$C_RESET" "$repo_pretty" "$REF"
     printf '  %sThis installer will:%s\n' "$C_DIM" "$C_RESET"
     printf '    %s·%s download the pack into a temp dir\n' "$C_DIM" "$C_RESET"
-    printf '    %s·%s merge selected tool configs (existing files win)\n' "$C_DIM" "$C_RESET"
+    printf '    %s·%s merge selected tool configs (your edits are preserved)\n' "$C_DIM" "$C_RESET"
     printf '    %s·%s add a filtered .mcp.json\n' "$C_DIM" "$C_RESET"
     printf '    %s·%s run scripts/setup-env.sh (lean-ctx, claude-mem, superpowers)\n' "$C_DIM" "$C_RESET"
     printf '    %s·%s run a stack-analysis pass with Claude CLI (if installed)\n\n' "$C_DIM" "$C_RESET"
-    note "Re-runs preserve existing files. To change selection, delete files first."
+    note "Re-runs update pack files you have not edited and report the rest as conflicts."
+    note "To change your tool/MCP selection, re-run with --reconfigure."
     printf '\n'
   else
     printf '[dev-team-pack] target: %s\n' "$TARGET"

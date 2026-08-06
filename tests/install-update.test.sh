@@ -90,7 +90,7 @@ test_untouched_file_is_updated() {
   run_install
   assert_file_is "untouched file updated" \
     "$TARGET/.claude/agents/code-reviewer.md" "v2 reviewer"
-  assert_out_contains "reports update" "updated"
+  assert_out_contains "reports update" "1 updated"
   teardown_sandbox
 }
 
@@ -117,7 +117,7 @@ test_conflict_is_reported_not_overwritten() {
   run_install
   assert_file_is "conflict preserves local" \
     "$TARGET/.claude/agents/code-reviewer.md" "mine"
-  assert_out_contains "conflict reported" "conflict"
+  assert_out_contains "conflict reported" "1 conflicts"
   teardown_sandbox
 }
 
