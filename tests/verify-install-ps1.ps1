@@ -5,7 +5,13 @@
 # cannot drive PowerShell, so this script exists to run the equivalent matrix
 # by hand on a machine with pwsh (Windows, or `pwsh` on macOS/Linux). It
 # builds a local git fixture, invokes install.ps1 against it repeatedly, and
-# asserts each of the 12 cases from task-10-brief.md Step 8.
+# asserts each of the 12 cases from task-10-brief.md Step 8, plus two
+# regression cases (13, 14) added after review found cross-installer hash
+# divergence bugs: CRLF mangling on Windows clones, and a tree-hash format
+# mismatch in the git-unavailable fallback.
+#
+# Cases 11 and 14 shell out to `bash install.sh`, so `bash` must be on PATH
+# (Git Bash or WSL bash on Windows) in addition to `git` and `pwsh`.
 #
 # Usage:
 #   pwsh -File tests/verify-install-ps1.ps1
@@ -219,6 +225,116 @@ try {
   $r12 = Invoke-Install -Fixture $Fixture -Target $Sandbox12
   Assert-True "case12 non-zero exit" ($r12.Exit -ne 0)
   Assert-True "case12 upgrade message shown" ($r12.Out -match 'newer than this installer supports')
+
+  Write-Host "`n=== Case 13: git clone disables core.autocrlf (CRLF/LF hash parity) ==="
+  Write-Host "  Regression check for install.ps1's clone (~line 74): without"
+  Write-Host "  '-c core.autocrlf=false', Git for Windows' common core.autocrlf=true"
+  Write-Host "  default would translate LF blobs to CRLF on checkout. Get-Sha256File"
+  Write-Host "  hashes raw bytes and Copy-Item preserves them into the target, so every"
+  Write-Host "  hash install.ps1 computes would permanently disagree with install.sh's"
+  Write-Host "  LF-based hashes for byte-identical repo content -- every .claude/* file"
+  Write-Host "  and .mcp.json would misclassify as conflict/update on every run."
+  $Sandbox13Fixture = Join-Path $Sandbox 'case13-fixture'
+  $Sandbox13Target  = Join-Path $Sandbox 'case13-target'
+  New-Item -ItemType Directory -Path (Join-Path $Sandbox13Fixture '.claude/agents') -Force | Out-Null
+  New-Item -ItemType Directory -Path $Sandbox13Target -Force | Out-Null
+  $multiline = "line one`nline two`nline three`n"
+  [System.IO.File]::WriteAllText((Join-Path $Sandbox13Fixture '.claude/agents/example.md'), $multiline)
+  Push-Location $Sandbox13Fixture
+  try {
+    git init -q -b main | Out-Null
+    git -c user.email=t@example.com -c user.name=test add -A | Out-Null
+    git -c user.email=t@example.com -c user.name=test commit -q -m v1 | Out-Null
+  } finally {
+    Pop-Location
+  }
+
+  # Emulate a Windows machine's common global default. Saved and restored so
+  # this test doesn't leave the running machine's git config mutated.
+  $savedAutocrlf = (git config --global core.autocrlf 2>$null)
+  git config --global core.autocrlf true
+  try {
+    Invoke-Install -Fixture $Sandbox13Fixture -Target $Sandbox13Target | Out-Null
+  } finally {
+    if ([string]::IsNullOrEmpty($savedAutocrlf)) {
+      git config --global --unset core.autocrlf 2>$null
+    } else {
+      git config --global core.autocrlf $savedAutocrlf
+    }
+  }
+
+  $installedFile = Join-Path $Sandbox13Target '.claude/agents/example.md'
+  if (Test-Path $installedFile) {
+    $installedBytes = [System.IO.File]::ReadAllBytes($installedFile)
+    $hasCR = $installedBytes -contains [byte]13
+    Assert-True "case13 installed file has no CR bytes despite global core.autocrlf=true" (-not $hasCR) `
+      "installed .claude/agents/example.md contains CR bytes -- core.autocrlf=false is missing from the git clone in install.ps1"
+    $expectedBytes = [System.Text.Encoding]::UTF8.GetBytes($multiline)
+    $identical = [System.Linq.Enumerable]::SequenceEqual($installedBytes, $expectedBytes)
+    Assert-True "case13 installed bytes match source LF content exactly" $identical
+  } else {
+    Fail "case13 installed file has no CR bytes despite global core.autocrlf=true" "file was not installed: $installedFile"
+    Fail "case13 installed bytes match source LF content exactly" "file was not installed: $installedFile"
+  }
+
+  Write-Host "`n=== Case 14: tree-hash format agrees with install.sh's pack_tree_hash ==="
+  Write-Host "  Regression check for Get-PackVersion's git-unavailable fallback: path"
+  Write-Host "  prefix ('./'), sort order/locale (ordinal, like LC_ALL=C sort), entry"
+  Write-Host "  separator, and the top-level-only .git/ exclusion must all match"
+  Write-Host "  install.sh's pack_tree_hash byte-for-byte, or the two installers will"
+  Write-Host "  never agree a pack fetched without git is 'up to date'."
+
+  function Import-InstallPs1Functions {
+    param([string[]]$Names)
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($InstallPs1, [ref]$tokens, [ref]$parseErrors)
+    foreach ($name in $Names) {
+      $fnAst = $ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+      }, $true) | Select-Object -First 1
+      if (-not $fnAst) { throw "Could not find function '$name' in install.ps1 -- has it been renamed?" }
+      Invoke-Expression $fnAst.Extent.Text
+    }
+  }
+
+  # Load the real Get-PackVersion (and its dependencies) straight out of
+  # install.ps1 by extracting the function text via the PowerShell AST, so
+  # this exercises the shipped code rather than a hand-copied duplicate.
+  Import-InstallPs1Functions -Names @('Get-Sha256File', 'Get-Sha256String', 'Get-PackVersion')
+
+  $TreeFixtureRoot = Join-Path $Sandbox 'case14-tree'
+  $TreePackDir     = Join-Path $TreeFixtureRoot 'pack'
+  New-Item -ItemType Directory -Path (Join-Path $TreePackDir '.claude/agents') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $TreePackDir 'nested') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $TreePackDir '.git/objects') -Force | Out-Null
+  Set-Content -Path (Join-Path $TreePackDir '.claude/agents/code-reviewer.md') -Value 'content a' -NoNewline
+  Set-Content -Path (Join-Path $TreePackDir '.mcp.json') -Value 'content b' -NoNewline
+  Set-Content -Path (Join-Path $TreePackDir 'CLAUDE.md') -Value 'content c' -NoNewline
+  Set-Content -Path (Join-Path $TreePackDir 'nested/file with space.txt') -Value 'content d' -NoNewline
+  # A .git/ dir that isn't a usable repo: Get-PackVersion will see it exists,
+  # attempt `git rev-parse HEAD`, have that fail, and fall through to the
+  # tree hash -- same as install.sh's pack_tree_hash would if invoked on a
+  # tarball-fetched (non-git) pack directory. Also exercises the "exclude
+  # only the top-level .git/*" rule.
+  Set-Content -Path (Join-Path $TreePackDir '.git/objects/abc') -Value 'should-be-excluded' -NoNewline
+
+  $psVersion = Get-PackVersion -Work $TreeFixtureRoot
+  Assert-Eq "case14 falls back to tree hash (no usable .git repo)" $psVersion.Source 'tree'
+
+  $bashScript = @"
+set -euo pipefail
+export DEV_TEAM_SOURCE_ONLY=1
+source '$RepoRoot/install.sh'
+WORK='$TreeFixtureRoot'
+detect_hash_runtime >/dev/null 2>&1
+pack_tree_hash
+"@
+  $bashHash = (& bash -c $bashScript 2>$null | Select-Object -Last 1)
+  if ($null -ne $bashHash) { $bashHash = $bashHash.ToString().Trim() }
+
+  Assert-Eq "case14 tree hash matches install.sh's pack_tree_hash" $psVersion.Version $bashHash
 
 } finally {
   Remove-Item -Recurse -Force $Sandbox -ErrorAction SilentlyContinue

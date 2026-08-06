@@ -306,7 +306,7 @@ fetch_pack() {
 
   if [ "$has_git" = "1" ]; then
     local clone_err
-    if clone_err="$(git clone --depth 1 --branch "$REF" "$REPO_URL" "$WORK/pack" 2>&1)"; then
+    if clone_err="$(git clone -c core.autocrlf=false --depth 1 --branch "$REF" "$REPO_URL" "$WORK/pack" 2>&1)"; then
       log "cloned $REF via git"
       return 0
     fi

@@ -71,7 +71,7 @@ function Fetch-Pack {
   $hasGit = $null -ne (Get-Command git -ErrorAction SilentlyContinue)
 
   if ($hasGit) {
-    $cloneOutput = git clone --depth 1 --branch $REF $REPO_URL "$Work\pack" 2>&1
+    $cloneOutput = git clone -c core.autocrlf=false --depth 1 --branch $REF $REPO_URL "$Work\pack" 2>&1
     if ($LASTEXITCODE -eq 0) {
       return
     }
@@ -142,13 +142,28 @@ function Get-PackVersion {
       return @{ Version = $sha.Trim(); Source = 'git' }
     }
   }
-  $lines = Get-ChildItem -Path $packDir -Recurse -File |
-    Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' } |
+  # Mirror install.sh's pack_tree_hash exactly: `find .`-style relative paths
+  # (./-prefixed, forward slashes), excluding only the top-level .git/ tree
+  # (not any nested .git/), sorted byte-ordinally (LC_ALL=C sort — not
+  # PowerShell's culture-aware default), each entry "path:hash\n" with no
+  # extra separator between entries (every line, including the last, ends in
+  # \n because bash's printf emits one per line), then hashed as one stream.
+  $relPaths = Get-ChildItem -Path $packDir -Recurse -File -Force |
     ForEach-Object {
-      $rel = $_.FullName.Substring($packDir.Length).TrimStart('\','/') -replace '\\', '/'
-      "{0}:{1}" -f $rel, (Get-Sha256File $_.FullName)
-    } | Sort-Object
-  @{ Version = (Get-Sha256String ($lines -join "`n")); Source = 'tree' }
+      $_.FullName.Substring($packDir.Length).TrimStart('\', '/') -replace '\\', '/'
+    } |
+    Where-Object { $_ -cnotlike '.git/*' }
+
+  $sortedRel = @($relPaths)
+  [Array]::Sort($sortedRel, [StringComparer]::Ordinal)
+
+  $sb = New-Object System.Text.StringBuilder
+  foreach ($rel in $sortedRel) {
+    $full = Join-Path $packDir ($rel -replace '/', '\')
+    [void]$sb.Append("./${rel}:$(Get-Sha256File $full)`n")
+  }
+
+  @{ Version = (Get-Sha256String $sb.ToString()); Source = 'tree' }
 }
 
 function Read-PackState {
