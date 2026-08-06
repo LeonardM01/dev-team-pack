@@ -485,6 +485,15 @@ for k, v in d.get("files", {}).items():
     print("%s\t%s" % (k, v))
 PY
 
+  # Seed this run's state with everything the previous run tracked. Steps that
+  # return early (tool not selected, path absent from the pack, settings.local
+  # preserved) never call record_state_entry, and write_state serializes only
+  # what was recorded — so without this seed a skipped step would permanently
+  # untrack its files, and an untracked pack file can never re-enter tracking
+  # (keep-untracked does not record in MODE=update). write_state is
+  # last-write-wins per key, so any step that does run overwrites its seed.
+  cp "$WORK/state_old.tsv" "$WORK/state_new.tsv"
+
   STATE_PRESENT=1
   MODE="update"
 }

@@ -43,6 +43,25 @@ run_install() {
 install_exit_code() { cat "$SANDBOX/exit.txt"; }
 state_json() { cat "$TARGET/.dev-team-pack.json" 2>/dev/null; }
 
+state_keys() {
+  python3 -c '
+import json, sys
+print("\n".join(sorted(json.load(open(sys.argv[1])).get("files", {}).keys())))
+' "$TARGET/.dev-team-pack.json" 2>/dev/null
+}
+
+assert_state_superset() {
+  local label="$1" before="$2"
+  local after missing
+  after="$(state_keys)"
+  missing="$(comm -23 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | grep . | tr '\n' ' ' || true)"
+  if [ -z "$missing" ]; then
+    ok "$label"
+  else
+    fail "$label" "keys dropped from state files map: $missing"
+  fi
+}
+
 state_field() {
   python3 -c '
 import json, sys

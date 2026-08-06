@@ -442,7 +442,58 @@ test_fresh_install_without_kept_files_omits_baseline_note() {
   teardown_sandbox
 }
 
+run_install_with_tools() {
+  local tools="$1"; shift
+  DEV_TEAM_REPO="$FIXTURE" DEV_TEAM_REF=main DEV_TEAM_TOOLS="$tools" \
+    DEV_TEAM_NONINTERACTIVE=1 NO_COLOR=1 \
+    bash "$REPO_ROOT/install.sh" "$TARGET" "$@" >"$SANDBOX/out.txt" 2>&1
+  printf '%s' "$?" > "$SANDBOX/exit.txt"
+  return 0
+}
+
+test_state_is_superset_when_cursor_deselected() {
+  setup_sandbox
+  run_install
+  local before; before="$(state_keys)"
+  printf 'v2 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  fixture_commit v2
+  run_install_with_tools claude
+  assert_state_superset "narrowing to claude keeps .cursor keys tracked" "$before"
+
+  printf 'v3 rule\n' > "$FIXTURE/.cursor/rules/base.mdc"
+  fixture_commit v3
+  run_install_with_tools claude,cursor
+  assert_file_is "deselected-then-reselected .cursor file still updates" \
+    "$TARGET/.cursor/rules/base.mdc" "v3 rule"
+  teardown_sandbox
+}
+
+test_state_is_superset_when_claude_deselected() {
+  setup_sandbox
+  run_install
+  local before; before="$(state_keys)"
+  printf 'v2 rule\n' > "$FIXTURE/.cursor/rules/base.mdc"
+  fixture_commit v2
+  run_install_with_tools cursor
+  assert_state_superset "narrowing to cursor keeps .claude and CLAUDE.md keys tracked" "$before"
+
+  printf 'v3 reviewer\n' > "$FIXTURE/.claude/agents/code-reviewer.md"
+  printf 'v3 pack docs\n' > "$FIXTURE/CLAUDE.md"
+  fixture_commit v3
+  run_install_with_tools claude,cursor
+  assert_file_is "deselected-then-reselected .claude file still updates" \
+    "$TARGET/.claude/agents/code-reviewer.md" "v3 reviewer"
+  if grep -q 'v3 pack docs' "$TARGET/CLAUDE.md"; then
+    ok "deselected-then-reselected CLAUDE.md block still updates"
+  else
+    fail "deselected-then-reselected CLAUDE.md block still updates" "block did not update"
+  fi
+  teardown_sandbox
+}
+
 printf 'install-update tests\n'
+test_state_is_superset_when_cursor_deselected
+test_state_is_superset_when_claude_deselected
 test_fresh_install_copies_pack_files
 test_existing_file_is_preserved
 test_version_is_recorded_as_git_sha
