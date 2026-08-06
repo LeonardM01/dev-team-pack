@@ -529,10 +529,12 @@ json.dump(d, open(sf, "w"), indent=2)
   fixture_commit v2
   run_install
   assert_out_contains "non-numeric schema reports the friendly error" "Corrupt state file"
-  # bash 3.2 says "integer expression expected", bash 5.x says "integer expected";
-  # match the substring common to both so this discriminates on every runner.
+  # bash 3.2 says "integer expression expected", bash 5.x says "integer
+  # expected"; "integer exp" is the only substring common to both. Matching
+  # either full wording is vacuous on the other interpreter, and stock macOS
+  # /bin/bash is 3.2.
   assert_out_lacks "non-numeric schema does not leak a raw shell error" \
-    "integer expected"
+    "integer exp"
   teardown_sandbox
 }
 
@@ -551,7 +553,7 @@ json.dump(d, open(sf, "w"), indent=2)
   run_install
   assert_out_contains "empty-string schema reports the friendly error" "Corrupt state file"
   assert_out_lacks "empty-string schema does not leak a raw shell error" \
-    "integer expected"
+    "integer exp"
   teardown_sandbox
 }
 
