@@ -3,13 +3,16 @@
 #
 #   TargetDir      Directory to install dev-team-pack into (default: current directory)
 #   -Force         Reinstall even if up to date; overwrite conflicting files
-#   -Reconfigure   Accepted for parity with install.sh; currently a no-op — this
-#                  script has no tool/MCP selection prompts to re-open
+#   -Reconfigure   Bypass the up-to-date early exit so a re-run reaches the merge
+#                  even when the pack version is unchanged, matching install.sh.
+#                  install.sh additionally re-opens its tool/MCP selection
+#                  prompts; this script has no selection prompts to re-open
 #
 #   Environment variables:
-#     $env:DEV_TEAM_REPO   Git repo URL (default: https://github.com/LeonardM01/dev-team-pack.git)
-#     $env:DEV_TEAM_REF    Branch/tag/ref to fetch (default: main)
-#     $env:DEV_TEAM_FORCE  Set to 1 for -Force
+#     $env:DEV_TEAM_REPO         Git repo URL (default: https://github.com/LeonardM01/dev-team-pack.git)
+#     $env:DEV_TEAM_REF          Branch/tag/ref to fetch (default: main)
+#     $env:DEV_TEAM_FORCE        Set to 1 for -Force
+#     $env:DEV_TEAM_RECONFIGURE  Set to 1 for -Reconfigure
 #
 #   Examples:
 #     .\install.ps1
@@ -30,6 +33,7 @@ $REF      = if ($env:DEV_TEAM_REF)  { $env:DEV_TEAM_REF  } else { 'main' }
 $TARGET   = $TargetDir
 
 $FORCE = $Force.IsPresent -or ($env:DEV_TEAM_FORCE -eq '1')
+$RECONFIG = $Reconfigure.IsPresent -or ($env:DEV_TEAM_RECONFIGURE -eq '1')
 $STATE_PATH = Join-Path $TARGET '.dev-team-pack.json'
 
 $script:Mode      = 'install'
@@ -170,11 +174,19 @@ function Get-PackVersion {
   # PowerShell's culture-aware default), each entry "path:hash\n" with no
   # extra separator between entries (every line, including the last, ends in
   # \n because bash's printf emits one per line), then hashed as one stream.
+  # A depth-1 entry under .claude/skills/ is a symlink in the repo (see
+  # Merge-SkillLinks). On a real clone it is never enumerated as -File; on a
+  # Windows clone git materializes it as a small text file holding the link
+  # target, which would otherwise change the version hash between platforms
+  # even though the underlying pack content did not change. Exclude it here
+  # so the tree hash agrees with install.sh's `find . -type f`, which already
+  # skips it (symlinks are not -type f).
   $relPaths = Get-ChildItem -Path $packDir -Recurse -File -Force |
     ForEach-Object {
       $_.FullName.Substring($packDir.Length).TrimStart('\', '/') -replace '\\', '/'
     } |
-    Where-Object { $_ -cnotlike '.git/*' }
+    Where-Object { $_ -cnotlike '.git/*' } |
+    Where-Object { $_ -cnotmatch '^\.claude/skills/[^/]+$' }
 
   $sortedRel = @($relPaths)
   [Array]::Sort($sortedRel, [StringComparer]::Ordinal)
@@ -360,6 +372,14 @@ function Merge-ClaudeDir {
       return
     }
 
+    # A depth-1 entry directly under skills/ is never an installed file: on a
+    # real clone it resolves to a directory symlink (never enumerated as
+    # -File), and on a Windows clone of the pack it is the git-materialized
+    # link-text file. Merge-SkillLinks resolves it explicitly.
+    if ($relNorm -match '^skills/[^/]+$') {
+      return
+    }
+
     if (($_.Name -eq 'settings.local.json') -and (Test-Path (Join-Path $TARGET '.claude\settings.local.json'))) {
       Write-Log "skip .claude/$relNorm (local settings preserved)"
       return
@@ -368,6 +388,73 @@ function Merge-ClaudeDir {
     $dest = Join-Path $TARGET ".claude\$rel"
 
     Invoke-FileAction -Key ".claude/$relNorm" -Dest $dest -Pack $srcFile | Out-Null
+  }
+}
+
+function Merge-AgentsDir {
+  param([string]$Work)
+
+  $srcBase = Join-Path $Work 'pack\.agents'
+  if (-not (Test-Path $srcBase)) { return }
+
+  Get-ChildItem -Path $srcBase -Recurse -File -Force | ForEach-Object {
+    $srcFile = $_.FullName
+    $rel     = $srcFile.Substring($srcBase.Length).TrimStart('\', '/')
+    $relNorm = $rel -replace '\\', '/'
+
+    $dest = Join-Path $TARGET ".agents\$rel"
+
+    Invoke-FileAction -Key ".agents/$relNorm" -Dest $dest -Pack $srcFile | Out-Null
+  }
+}
+
+# .claude/skills/<name> is a directory symlink in the repo, pointing at
+# ../../.agents/skills/<name>. Get-ChildItem -Recurse does not reliably
+# follow reparse points, -FollowSymlink does not exist in Windows PowerShell
+# 5.1, and a Windows clone usually materializes the entry as a plain text
+# file containing the link text anyway (see Get-PackVersion). Resolve each
+# depth-1 non-directory entry explicitly and copy the real .agents/ content
+# under the same .claude/skills/<name> destination and key that bash's
+# `find -L` walk produces, so both installers agree byte-for-byte.
+function Merge-SkillLinks {
+  param([string]$Work)
+
+  $skillsBase = Join-Path $Work 'pack\.claude\skills'
+  if (-not (Test-Path $skillsBase)) { return }
+
+  Get-ChildItem -Path $skillsBase -Force | Where-Object {
+    -not ($_.PSIsContainer -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint))
+  } | ForEach-Object {
+    $entry = $_
+
+    if ($entry.Target) {
+      $linkText = $entry.Target
+    } else {
+      $linkText = ([System.IO.File]::ReadAllText($entry.FullName)).Trim()
+    }
+    $linkText = $linkText -replace '\\', '/'
+
+    if ($linkText -notmatch '^(?:\.\./)*\.agents/skills/(?<name>[^/]+)/?$') {
+      Write-Log "skip .claude/skills/$($entry.Name) (unrecognized link target: $linkText)"
+      return
+    }
+    $name = $Matches['name']
+
+    $resolvedSrc = Join-Path $Work "pack\.agents\skills\$name"
+    if (-not (Test-Path $resolvedSrc)) {
+      Write-Log "skip .claude/skills/$($entry.Name) (link target .agents/skills/$name not found in pack)"
+      return
+    }
+
+    Get-ChildItem -Path $resolvedSrc -Recurse -File -Force | ForEach-Object {
+      $srcFile  = $_.FullName
+      $subRel     = $srcFile.Substring($resolvedSrc.Length).TrimStart('\', '/')
+      $subRelNorm = $subRel -replace '\\', '/'
+
+      $dest = Join-Path $TARGET ".claude\skills\$($entry.Name)\$subRel"
+
+      Invoke-FileAction -Key ".claude/skills/$($entry.Name)/$subRelNorm" -Dest $dest -Pack $srcFile | Out-Null
+    }
   }
 }
 
@@ -440,6 +527,14 @@ function Merge-ClaudeMd {
     Set-StateEntry -Key $key -Hash $rec
     Resolve-ConflictEntry -Key $key
     Write-Log "skip CLAUDE.md (block already current)"
+    return
+  }
+
+  if ($packHash -eq $rec) {
+    Set-StateEntry -Key $key -Hash $rec
+    Resolve-ConflictEntry -Key $key
+    $script:Counters.Kept++
+    Write-Log "keep CLAUDE.md (edited locally, no upstream change)"
     return
   }
 
@@ -587,7 +682,7 @@ try {
   Write-Log "pack version $($ver.Version) ($($ver.Source))"
   Read-PackState
 
-  $upToDate = ($script:Mode -eq 'update') -and (-not $FORCE) -and
+  $upToDate = ($script:Mode -eq 'update') -and (-not $FORCE) -and (-not $RECONFIG) -and
               $script:StateMeta.version -and ($script:StateMeta.version -eq $ver.Version)
 
   if ($upToDate) {
@@ -601,7 +696,9 @@ try {
       Write-Log "Re-run with -Force to overwrite them with the pack version."
     }
   } else {
+    Merge-AgentsDir -Work $WORK
     Merge-ClaudeDir -Work $WORK
+    Merge-SkillLinks -Work $WORK
     Copy-McpJson    -Work $WORK
     Merge-ClaudeMd  -Work $WORK
     Run-EnvSetup    -Work $WORK
