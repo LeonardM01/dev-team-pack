@@ -1276,6 +1276,8 @@ merge_claude_dir() {
     local rel="${src_file#"$src_base/"}"
     case "$rel" in
       agent-memory/*) continue ;;
+      skills/*/*) ;;
+      skills/*) continue ;;
     esac
 
     if [ "$(basename "$rel")" = "settings.local.json" ] && [ -f "$TARGET/.claude/settings.local.json" ]; then
@@ -1285,9 +1287,26 @@ merge_claude_dir() {
 
     local dest="$TARGET/.claude/$rel"
     apply_file_action ".claude/$rel" "$dest" "$src_file"
-  done < <(find "$src_base" -type f -print0)
+  done < <(find -L "$src_base" -type f -print0)
 
   log "added $N_ADDED · updated $N_UPDATED · kept $N_KEPT · conflicts $N_CONFLICT · local settings preserved $preserved"
+  if [ "$N_ADDED" -eq "$n_added0" ] && [ "$N_UPDATED" -eq "$n_updated0" ]; then STEP_STATUS=skip; fi
+  if [ "$N_CONFLICT" -gt "$n_conflict0" ]; then STEP_STATUS=warn; fi
+}
+
+merge_agents_dir() {
+  local src_base="$WORK/pack/.agents"
+  [ -d "$src_base" ] || { STEP_STATUS=skip; log "no .agents/ in pack"; return 0; }
+
+  local n_added0=$N_ADDED n_updated0=$N_UPDATED n_conflict0=$N_CONFLICT
+
+  while IFS= read -r -d '' src_file; do
+    local rel="${src_file#"$src_base/"}"
+    local dest="$TARGET/.agents/$rel"
+    apply_file_action ".agents/$rel" "$dest" "$src_file"
+  done < <(find "$src_base" -type f -print0)
+
+  log "added $N_ADDED · updated $N_UPDATED · kept $N_KEPT · conflicts $N_CONFLICT"
   if [ "$N_ADDED" -eq "$n_added0" ] && [ "$N_UPDATED" -eq "$n_updated0" ]; then STEP_STATUS=skip; fi
   if [ "$N_CONFLICT" -gt "$n_conflict0" ]; then STEP_STATUS=warn; fi
 }
@@ -1386,6 +1405,15 @@ merge_claude_md() {
     resolve_conflict_entry "$key"
     STEP_STATUS=skip
     log "dev-team block already current"
+    return 0
+  fi
+
+  if [ "$pack_hash" = "$rec" ]; then
+    record_state_entry "$key" "$rec"
+    resolve_conflict_entry "$key"
+    N_KEPT=$((N_KEPT + 1))
+    STEP_STATUS=skip
+    log "dev-team block edited locally, no upstream change; keeping yours"
     return 0
   fi
 
@@ -1530,6 +1558,7 @@ main() {
 
   divider "merge"
   step "Stage filtered pack"     stage_filtered_pack
+  step "Merge .agents/ skills"   merge_agents_dir
   step "Merge .claude/ config"   merge_claude_dir
   step "Merge .cursor/ config"   merge_cursor_dir
   step "Install .mcp.json"       copy_mcp_json
