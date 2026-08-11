@@ -28,10 +28,13 @@ iwr -useb https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/instal
 1. Clones dev-team-pack into a temp directory (shallow `git clone`; falls back to the GitHub codeload tarball if `git` is not available).
 2. **Prompts you to select AI tool targets** (`claude`, `cursor`, or both) and **which MCP servers** to enable (any subset of `context7`, `figma`, `playwright`, `atlassian`, `linear`, `lean-ctx`, `XcodeBuildMCP`). Only the selected targets and servers are installed. Use env vars (see Configuration) to skip prompts entirely.
 3. Copies `.claude/` (agents, skills, settings) into the project for the selected tool targets. `agent-memory/` is always preserved. Files already in the project that this pack did not write are left alone; see [Updating](#updating) for what happens to pack files on a re-run.
-4. Copies `.mcp.json` to the project root containing only the selected MCP servers. On a re-run it is updated, kept or reported as a conflict like any other pack file — see [Updating](#updating).
-5. Appends the pack's `CLAUDE.md` to the project's `CLAUDE.md`, wrapped in `<!-- dev-team-pack:begin -->` / `<!-- dev-team-pack:end -->` markers. On a re-run the block is updated in place if you haven't edited it, or reported as a conflict if you have — see [Updating](#updating).
-6. Runs `scripts/setup-env.sh` to install/verify the global tool stack: `lean-ctx`, `claude-mem`, and the Superpowers Claude Code plugin.
-7. If the `claude` CLI is installed, runs a one-shot analysis that detects the project's tech stack and rewrites the Tech Stack + Commands sections of the dev-team block in `CLAUDE.md` to reflect the actual `package.json` scripts (or equivalent).
+4. Merges `.agents/` (the tool-neutral skills directory — `code-review`, `grill-me`, `grilling`, `research`, `tdd`, `to-spec`, `to-tickets`) into the project. Unlike `.claude/` and `.cursor/`, this step is **not gated by tool selection** — it installs regardless of which tools you chose, because `.agents/` maps to no member of the `claude`/`cursor` tool universe and gating it on `claude` would hide it from cursor-only users. There is currently no opt-out.
+
+   In this pack, seven of the `.claude/skills/` entries (`code-review`, `grill-me`, `grilling`, `research`, `tdd`, `to-spec`, `to-tickets`) are symlinks into `.agents/skills/`. The installer does not recreate symlinks in your project — it materializes real files at both `.agents/skills/<name>/` and `.claude/skills/<name>/`, tracked as independent files in `.dev-team-pack.json`. **Editing one copy does not update the other**, and each can independently show up as a conflict on a later update. Symlinks aren't used because they break on Windows without Developer Mode, don't fit the per-file add/update/conflict state model, and this way `install.sh` and `install.ps1` stay behaviourally identical — important since `.dev-team-pack.json` is meant to be committed and shared across a team on mixed platforms.
+5. Copies `.mcp.json` to the project root containing only the selected MCP servers. On a re-run it is updated, kept or reported as a conflict like any other pack file — see [Updating](#updating).
+6. Appends the pack's `CLAUDE.md` to the project's `CLAUDE.md`, wrapped in `<!-- dev-team-pack:begin -->` / `<!-- dev-team-pack:end -->` markers. On a re-run the block is updated in place if you haven't edited it, or reported as a conflict if you have — see [Updating](#updating).
+7. Runs `scripts/setup-env.sh` to install/verify the global tool stack: `lean-ctx`, `claude-mem`, and the Superpowers Claude Code plugin.
+8. If the `claude` CLI is installed, runs a one-shot analysis that detects the project's tech stack and rewrites the Tech Stack + Commands sections of the dev-team block in `CLAUDE.md` to reflect the actual `package.json` scripts (or equivalent).
 
 ## Updating
 
@@ -67,9 +70,10 @@ by design. If you want the installer to take ownership of a file it is
 currently ignoring, delete `.dev-team-pack.json` and re-run. The next run
 records everything on disk as the new baseline.
 
-Windows uses `-Force` and `-Reconfigure` on `install.ps1`. `install.ps1` implements a
-subset of `install.sh` and has no tool or MCP selection prompts at all, so
-`-Reconfigure` is accepted but is currently a no-op there.
+Windows uses `-Force` and `-Reconfigure` on `install.ps1` (environment
+equivalents: `DEV_TEAM_FORCE=1` and `DEV_TEAM_RECONFIGURE=1`). `-Reconfigure`
+bypasses the up-to-date early exit there too, but `install.ps1` implements a
+subset of `install.sh` and has no tool or MCP selection prompts to re-open.
 
 > **Do not alternate the two installers against the same target with a
 > non-default MCP selection.** `install.ps1` has no MCP filtering, so it always
@@ -130,7 +134,7 @@ DEV_TEAM_TOOLS=claude DEV_TEAM_MCPS=context7,lean-ctx curl -fsSL https://dev.leo
 
 Re-running the installer is safe. See [Updating](#updating) for exactly what happens to each file on a re-run.
 
-To change your tool target or MCP selection, re-run with `--reconfigure` (`-Reconfigure` on Windows, though it is currently a no-op in `install.ps1`) instead of deleting files. `--reconfigure` also bypasses the up-to-date early exit, so it works even when you already have the latest pack version.
+To change your tool target or MCP selection, re-run with `--reconfigure` (`install.ps1` has no selection prompts, so on Windows `-Reconfigure` only bypasses the up-to-date early exit) instead of deleting files. `--reconfigure` also bypasses the up-to-date early exit, so it works even when you already have the latest pack version.
 
 ## Security note
 
@@ -243,11 +247,19 @@ git -C /path/to/repo branch -D <TICKET>
 ## Layout
 
 ```
+.agents/
+  skills/<name>/SKILL.md          tool-neutral skills (always installed, ungated by tool selection)
+                                   materialized copies of the .claude/skills/ symlinks below, plus
+                                   agents/openai.yaml per skill (tdd/ also has mocking.md, tests.md)
 .claude/
   agents/                         agent definitions (Albus, Harry, Hermione, Ron)
   agent-memory/<agent>/           persistent per-agent memory (versioned)
   skills/jira-start/SKILL.md      the Jira ticket kickoff playbook
   skills/linear-start/SKILL.md    the Linear issue kickoff playbook
+  skills/<name>/                  seven of these (code-review, grill-me, grilling, research, tdd,
+                                   to-spec, to-tickets) are symlinks to ../../.agents/skills/<name>
+                                   in this repo; the installer materializes them as independent
+                                   real files in target projects — see "What it does" step 4
 .cursor/                          generated — do not edit by hand (run scripts/sync-cursor.mjs)
   mcp.json                        copy of .mcp.json for Cursor's MCP approval flow
   README.md                       notice that these files are generated
