@@ -5,12 +5,15 @@
 # cannot drive PowerShell, so this script exists to run the equivalent matrix
 # by hand on a machine with pwsh (Windows, or `pwsh` on macOS/Linux). It
 # builds a local git fixture, invokes install.ps1 against it repeatedly, and
-# asserts each of the 12 cases from task-10-brief.md Step 8, plus five
+# asserts each of the 12 cases from task-10-brief.md Step 8, plus ten
 # regression cases added after review found cross-installer bugs: CRLF mangling
 # on Windows clones (13), a tree-hash format mismatch in the git-unavailable
 # fallback (14), state keys destroyed by the installer that does not own them
-# (15), a UTF-8 BOM that install.sh could not parse (16), and an unresolved
-# conflict hidden by the up-to-date early exit (17).
+# (15), a UTF-8 BOM that install.sh could not parse (16), an unresolved
+# conflict hidden by the up-to-date early exit (17), a locally edited
+# CLAUDE.md block with unchanged upstream misreported as a conflict and
+# overwritten by -Force (18), -Reconfigure bypassing the up-to-date exit (19),
+# and .agents/ install plus symlinked .claude/skills/ materialization (20-22).
 #
 # Cases 11, 14, 15 and 16 shell out to `bash install.sh`, so `bash` must be on PATH
 # (Git Bash or WSL bash on Windows) in addition to `git` and `pwsh`.
@@ -73,10 +76,21 @@ function New-Fixture {
   New-Item -ItemType Directory -Path (Join-Path $Path '.claude/agents') -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $Path '.cursor/rules') -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $Path 'scripts') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $Path '.agents/skills/tdd') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $Path '.claude/skills') -Force | Out-Null
   Set-Content -Path (Join-Path $Path '.claude/agents/code-reviewer.md') -Value 'v1 reviewer' -NoNewline:$false
   Set-Content -Path (Join-Path $Path '.cursor/rules/base.mdc') -Value 'v1 rule' -NoNewline:$false
   Set-Content -Path (Join-Path $Path 'CLAUDE.md') -Value 'v1 pack docs' -NoNewline:$false
   Set-Content -Path (Join-Path $Path '.mcp.json') -Value '{ "mcpServers": { "context7": {"command":"c7"} } }' -NoNewline:$false
+  Set-Content -Path (Join-Path $Path '.agents/skills/tdd/SKILL.md') -Value 'v1 tdd skill' -NoNewline:$false
+  # .claude/skills/tdd is a symlink in the real repo (`../../.agents/skills/tdd`).
+  # Modeled here as a plain file containing the link text rather than a real
+  # reparse point, because that is exactly what `git clone` produces on
+  # Windows with the common core.symlinks=false default -- the case
+  # Merge-SkillLinks exists to handle, and the more faithful fixture for this
+  # matrix (dev machines running pwsh here are not guaranteed dev-mode
+  # symlink privileges).
+  Set-Content -Path (Join-Path $Path '.claude/skills/tdd') -Value '../../.agents/skills/tdd' -NoNewline
   Push-Location $Path
   try {
     git init -q -b main | Out-Null
@@ -88,11 +102,12 @@ function New-Fixture {
 }
 
 function Invoke-Install {
-  param([string]$Fixture, [string]$Target, [switch]$Force)
+  param([string]$Fixture, [string]$Target, [switch]$Force, [switch]$Reconfigure)
   $env:DEV_TEAM_REPO = $Fixture
   $env:DEV_TEAM_REF  = 'main'
   $argsList = @($Target)
   if ($Force) { $argsList = @('-Force') + $argsList }
+  if ($Reconfigure) { $argsList = @('-Reconfigure') + $argsList }
   $out = & pwsh -NoProfile -File $InstallPs1 @argsList 2>&1
   $exit = $LASTEXITCODE
   Remove-Item Env:DEV_TEAM_REPO -ErrorAction SilentlyContinue
@@ -400,6 +415,74 @@ pack_tree_hash
   Invoke-Install -Fixture $Fixture -Target $Sandbox17 -Force | Out-Null
   $state17b = Get-StateJson -Target $Sandbox17
   Assert-True "case17 resolved conflict cleared from state" (@($state17b.conflicts).Count -eq 0)
+
+  Write-Host "`n=== Case 18: CLAUDE.md block edited locally, upstream unchanged -> kept, no conflict, -Force keeps it ==="
+  $Sandbox18 = Join-Path $Sandbox 'case18'
+  New-Item -ItemType Directory -Path $Sandbox18 | Out-Null
+  Invoke-Install -Fixture $Fixture -Target $Sandbox18 | Out-Null
+  $md18Path = Join-Path $Sandbox18 'CLAUDE.md'
+  $md18 = [System.IO.File]::ReadAllText($md18Path)
+  [System.IO.File]::WriteAllText($md18Path, ($md18 -replace 'v2 pack docs', 'hand edited block'))
+  Set-Content -Path (Join-Path $Fixture '.cursor/rules/base.mdc') -Value 'v18 rule'
+  Push-Location $Fixture
+  try { git -c user.email=t@example.com -c user.name=test commit -aqm v18 } finally { Pop-Location }
+  $r18 = Invoke-Install -Fixture $Fixture -Target $Sandbox18
+  $md18a = Get-Content -Raw $md18Path
+  Assert-True "case18 edited block kept when upstream unchanged" ($md18a -match 'hand edited block')
+  Assert-True "case18 no CLAUDE.md conflict reported" (-not ($r18.Out -match 'conflict CLAUDE\.md'))
+  $r18b = Invoke-Install -Fixture $Fixture -Target $Sandbox18 -Force
+  $md18b = Get-Content -Raw $md18Path
+  Assert-True "case18 -Force keeps the edited block when upstream unchanged" ($md18b -match 'hand edited block')
+
+  Write-Host "`n=== Case 19: -Reconfigure and DEV_TEAM_RECONFIGURE bypass the up-to-date exit ==="
+  $Sandbox19 = Join-Path $Sandbox 'case19'
+  New-Item -ItemType Directory -Path $Sandbox19 | Out-Null
+  Invoke-Install -Fixture $Fixture -Target $Sandbox19 | Out-Null
+  $r19a = Invoke-Install -Fixture $Fixture -Target $Sandbox19
+  Assert-True "case19 plain re-run reports up to date" ($r19a.Out -match 'Already up to date')
+  $r19b = Invoke-Install -Fixture $Fixture -Target $Sandbox19 -Reconfigure
+  Assert-True "case19 -Reconfigure bypasses the up-to-date exit" (-not ($r19b.Out -match 'Already up to date'))
+  $env:DEV_TEAM_RECONFIGURE = '1'
+  $r19c = Invoke-Install -Fixture $Fixture -Target $Sandbox19
+  Remove-Item Env:DEV_TEAM_RECONFIGURE -ErrorAction SilentlyContinue
+  Assert-True "case19 DEV_TEAM_RECONFIGURE=1 bypasses the up-to-date exit" (-not ($r19c.Out -match 'Already up to date'))
+
+  Write-Host "`n=== Case 20: fresh install writes .agents/ and materializes .claude/skills/<name> ==="
+  $Sandbox20 = Join-Path $Sandbox 'case20'
+  New-Item -ItemType Directory -Path $Sandbox20 | Out-Null
+  Invoke-Install -Fixture $Fixture -Target $Sandbox20 | Out-Null
+  $agentsSkill20 = Join-Path $Sandbox20 '.agents/skills/tdd/SKILL.md'
+  Assert-True "case20 .agents/skills/tdd/SKILL.md installed" (Test-Path $agentsSkill20)
+  if (Test-Path $agentsSkill20) {
+    Assert-Eq "case20 .agents/skills/tdd/SKILL.md content" (Get-Content -Raw $agentsSkill20).Trim() 'v1 tdd skill'
+  }
+  $claudeSkillDir20 = Join-Path $Sandbox20 '.claude/skills/tdd'
+  Assert-True "case20 .claude/skills/tdd is a real directory, not a bogus file" `
+    (Test-Path -PathType Container $claudeSkillDir20)
+  $claudeSkillFile20 = Join-Path $Sandbox20 '.claude/skills/tdd/SKILL.md'
+  Assert-True "case20 .claude/skills/tdd/SKILL.md materialized" (Test-Path $claudeSkillFile20)
+  if (Test-Path $claudeSkillFile20) {
+    Assert-Eq "case20 .claude/skills/tdd/SKILL.md content" (Get-Content -Raw $claudeSkillFile20).Trim() 'v1 tdd skill'
+  }
+
+  Write-Host "`n=== Case 21: update to .agents/ file propagates to both copies ==="
+  Set-Content -Path (Join-Path $Fixture '.agents/skills/tdd/SKILL.md') -Value 'v2 tdd skill'
+  Push-Location $Fixture
+  try { git -c user.email=t@example.com -c user.name=test commit -aqm v21 } finally { Pop-Location }
+  Invoke-Install -Fixture $Fixture -Target $Sandbox20 | Out-Null
+  Assert-Eq "case21 .agents/ copy updated" (Get-Content -Raw $agentsSkill20).Trim() 'v2 tdd skill'
+  Assert-Eq "case21 materialized .claude/skills/ copy updated" (Get-Content -Raw $claudeSkillFile20).Trim() 'v2 tdd skill'
+
+  Write-Host "`n=== Case 22: local edit to .agents/ file conflicts, preserved, then -Force overwrites ==="
+  Set-Content -Path $agentsSkill20 -Value 'mine' -NoNewline
+  Set-Content -Path (Join-Path $Fixture '.agents/skills/tdd/SKILL.md') -Value 'v3 tdd skill'
+  Push-Location $Fixture
+  try { git -c user.email=t@example.com -c user.name=test commit -aqm v22 } finally { Pop-Location }
+  $r22 = Invoke-Install -Fixture $Fixture -Target $Sandbox20
+  Assert-True "case22 conflict reported" ($r22.Out -match 'conflict')
+  Assert-Eq "case22 local edit preserved" (Get-Content -Raw $agentsSkill20).Trim() 'mine'
+  Invoke-Install -Fixture $Fixture -Target $Sandbox20 -Force | Out-Null
+  Assert-Eq "case22 -Force overwrites the conflict" (Get-Content -Raw $agentsSkill20).Trim() 'v3 tdd skill'
 
 } finally {
   Remove-Item -Recurse -Force $Sandbox -ErrorAction SilentlyContinue

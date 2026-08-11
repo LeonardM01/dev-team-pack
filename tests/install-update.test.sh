@@ -219,6 +219,38 @@ test_edited_claude_md_block_conflicts() {
   teardown_sandbox
 }
 
+test_edited_claude_md_block_kept_without_conflict_when_upstream_unchanged() {
+  setup_sandbox
+  run_install
+  perl -0pi -e 's/v1 pack docs/hand edited/' "$TARGET/CLAUDE.md"
+  printf 'v2 architect\n' > "$FIXTURE/.claude/agents/code-architect.md"
+  fixture_commit v2
+  run_install
+  if grep -q 'hand edited' "$TARGET/CLAUDE.md"; then
+    ok "edited block kept when upstream unchanged"
+  else
+    fail "edited block kept when upstream unchanged" "block was overwritten"
+  fi
+  assert_out_lacks "no conflict reported when upstream unchanged" \
+    "conflict CLAUDE.md block"
+  teardown_sandbox
+}
+
+test_force_keeps_edited_claude_md_block_when_upstream_unchanged() {
+  setup_sandbox
+  run_install
+  perl -0pi -e 's/v1 pack docs/hand edited/' "$TARGET/CLAUDE.md"
+  printf 'v2 architect\n' > "$FIXTURE/.claude/agents/code-architect.md"
+  fixture_commit v2
+  run_install --force
+  if grep -q 'hand edited' "$TARGET/CLAUDE.md"; then
+    ok "force keeps local edit when upstream unchanged"
+  else
+    fail "force keeps local edit when upstream unchanged" "block was overwritten"
+  fi
+  teardown_sandbox
+}
+
 test_claude_md_block_update_preserves_content_before_and_after() {
   setup_sandbox
   run_install
@@ -449,6 +481,104 @@ run_install_with_tools() {
     bash "$REPO_ROOT/install.sh" "$TARGET" "$@" >"$SANDBOX/out.txt" 2>&1
   printf '%s' "$?" > "$SANDBOX/exit.txt"
   return 0
+}
+
+add_agents_fixture() {
+  mkdir -p "$FIXTURE/.agents/skills/tdd" "$FIXTURE/.claude/skills"
+  printf 'v1 tdd skill\n' > "$FIXTURE/.agents/skills/tdd/SKILL.md"
+  printf 'v1 tdd tests\n' > "$FIXTURE/.agents/skills/tdd/tests.md"
+  ln -s ../../.agents/skills/tdd "$FIXTURE/.claude/skills/tdd"
+  fixture_commit agents
+}
+
+test_fresh_install_adds_agents_dir() {
+  setup_sandbox
+  add_agents_fixture
+  run_install
+  assert_file_is "fresh install copies .agents/skills/tdd/SKILL.md" \
+    "$TARGET/.agents/skills/tdd/SKILL.md" "v1 tdd skill"
+  assert_file_is "fresh install copies .agents/skills/tdd/tests.md" \
+    "$TARGET/.agents/skills/tdd/tests.md" "v1 tdd tests"
+  if state_keys | grep -qF '.agents/skills/tdd/SKILL.md'; then
+    ok ".agents/skills/tdd/SKILL.md recorded in state"
+  else
+    fail ".agents/skills/tdd/SKILL.md recorded in state" "key missing from state"
+  fi
+  teardown_sandbox
+}
+
+test_fresh_install_materializes_symlinked_skill() {
+  setup_sandbox
+  add_agents_fixture
+  run_install
+  assert_file_is "symlinked skill materialized as a real file" \
+    "$TARGET/.claude/skills/tdd/SKILL.md" "v1 tdd skill"
+  if [ -d "$TARGET/.claude/skills/tdd" ] && [ ! -L "$TARGET/.claude/skills/tdd" ]; then
+    ok "materialized skill dir is a real directory, not a symlink"
+  else
+    fail "materialized skill dir is a real directory, not a symlink" "found a symlink or missing dir"
+  fi
+  if state_keys | grep -qF '.claude/skills/tdd/SKILL.md'; then
+    ok ".claude/skills/tdd/SKILL.md recorded in state"
+  else
+    fail ".claude/skills/tdd/SKILL.md recorded in state" "key missing from state"
+  fi
+  teardown_sandbox
+}
+
+test_agents_update_propagates_to_both_copies() {
+  setup_sandbox
+  add_agents_fixture
+  run_install
+  printf 'v2 tdd skill\n' > "$FIXTURE/.agents/skills/tdd/SKILL.md"
+  fixture_commit v2
+  run_install
+  assert_file_is "update propagates to .agents/ copy" \
+    "$TARGET/.agents/skills/tdd/SKILL.md" "v2 tdd skill"
+  assert_file_is "update propagates to materialized .claude/skills/ copy" \
+    "$TARGET/.claude/skills/tdd/SKILL.md" "v2 tdd skill"
+  teardown_sandbox
+}
+
+test_agents_conflict_is_reported_not_overwritten() {
+  setup_sandbox
+  add_agents_fixture
+  run_install
+  printf 'mine\n' > "$TARGET/.agents/skills/tdd/SKILL.md"
+  printf 'v2 tdd skill\n' > "$FIXTURE/.agents/skills/tdd/SKILL.md"
+  fixture_commit v2
+  run_install
+  assert_file_is "conflict preserves local .agents/ edit" \
+    "$TARGET/.agents/skills/tdd/SKILL.md" "mine"
+  assert_out_contains "conflict reported" "1 conflicts"
+  run_install --force
+  assert_file_is "force resolves .agents/ conflict" \
+    "$TARGET/.agents/skills/tdd/SKILL.md" "v2 tdd skill"
+  teardown_sandbox
+}
+
+test_agents_deleted_locally_is_not_readded() {
+  setup_sandbox
+  add_agents_fixture
+  run_install
+  rm "$TARGET/.agents/skills/tdd/tests.md"
+  printf 'v2 tdd skill\n' > "$FIXTURE/.agents/skills/tdd/SKILL.md"
+  fixture_commit v2
+  run_install
+  assert_file_absent "deleted .agents/ file not resurrected" \
+    "$TARGET/.agents/skills/tdd/tests.md"
+  teardown_sandbox
+}
+
+test_agents_installed_even_when_only_cursor_selected() {
+  setup_sandbox
+  add_agents_fixture
+  run_install_with_tools cursor
+  assert_file_is ".agents/ installs even when cursor-only selected" \
+    "$TARGET/.agents/skills/tdd/SKILL.md" "v1 tdd skill"
+  assert_file_absent "materialized .claude/skills/ not installed when claude deselected" \
+    "$TARGET/.claude/skills/tdd"
+  teardown_sandbox
 }
 
 test_state_is_superset_when_cursor_deselected() {
@@ -773,6 +903,8 @@ test_adopted_file_is_updated_on_next_run
 test_conflict_in_one_step_does_not_warn_other_steps
 test_claude_md_block_updates_preserving_user_content
 test_edited_claude_md_block_conflicts
+test_edited_claude_md_block_kept_without_conflict_when_upstream_unchanged
+test_force_keeps_edited_claude_md_block_when_upstream_unchanged
 test_claude_md_block_update_preserves_content_before_and_after
 test_claude_md_marker_substring_in_prose_is_not_treated_as_marker
 test_claude_md_update_preserves_missing_trailing_newline
@@ -788,4 +920,10 @@ test_update_summary_tallies_and_lists_conflicts
 test_first_upgrade_notes_baseline_adoption
 test_update_run_does_not_repeat_baseline_adoption_note
 test_fresh_install_without_kept_files_omits_baseline_note
+test_fresh_install_adds_agents_dir
+test_fresh_install_materializes_symlinked_skill
+test_agents_update_propagates_to_both_copies
+test_agents_conflict_is_reported_not_overwritten
+test_agents_deleted_locally_is_not_readded
+test_agents_installed_even_when_only_cursor_selected
 finish
