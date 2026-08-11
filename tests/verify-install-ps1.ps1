@@ -494,6 +494,22 @@ pack_tree_hash
   Invoke-Install -Fixture $Fixture -Target $Sandbox20 -Force | Out-Null
   Assert-Eq "case22 -Force overwrites the conflict" (Get-Content -Raw $agentsSkill20).Trim() 'v3 tdd skill'
 
+  Write-Host "`n=== Case 23: Test-SkillLinkRelPath matches the skill subtree but not a genuine depth-1 file ==="
+  Write-Host "  Regression check for SF1: the pattern must be unanchored at the tail"
+  Write-Host "  (mirroring Merge-ClaudeDir's '^skills/(?<name>[^/]+)') so a real-symlink"
+  Write-Host "  WinPS 5.1 clone excludes .claude/skills/<name>/... from the tree hash the"
+  Write-Host "  same way Merge-ClaudeDir excludes it from the merge walk -- while still"
+  Write-Host "  hashing a genuine .claude/skills/README.md normally."
+  Import-InstallPs1Functions -Names @('Test-SkillLinkRelPath')
+  $script:SkillLinkNames = @('tdd')
+  Assert-True "case23 depth-1 link entry matches" (Test-SkillLinkRelPath '.claude/skills/tdd')
+  Assert-True "case23 nested file under a link name matches (subtree, not just depth-1)" `
+    (Test-SkillLinkRelPath '.claude/skills/tdd/SKILL.md')
+  Assert-True "case23 genuine depth-1 README.md does not match (stays hashed)" `
+    (-not (Test-SkillLinkRelPath '.claude/skills/README.md'))
+  Assert-True "case23 unrelated depth-1 name does not match" `
+    (-not (Test-SkillLinkRelPath '.claude/skills/other-skill'))
+
 } finally {
   Remove-Item -Recurse -Force $Sandbox -ErrorAction SilentlyContinue
 }

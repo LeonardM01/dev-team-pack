@@ -641,6 +641,46 @@ test_genuine_file_at_skills_depth_one_still_installs() {
   teardown_sandbox
 }
 
+# SF2: is_skill_link's symlink branch is conditional on the target actually
+# resolving to a .agents/skills/<name> link (its sole owner, merge_skill_links,
+# can only materialise that shape). A depth-1 symlink pointing anywhere else
+# must NOT be claimed by the predicate, so it falls through to
+# merge_claude_dir's ordinary `find -L` merge walk instead of vanishing.
+test_nonagents_symlink_still_installed_by_merge_walk() {
+  setup_sandbox
+  mkdir -p "$FIXTURE/.claude/extra-content" "$FIXTURE/.claude/skills"
+  printf 'extra content\n' > "$FIXTURE/.claude/extra-content/foo.md"
+  ln -s ../extra-content "$FIXTURE/.claude/skills/other"
+  fixture_commit nonagents-symlink
+  run_install
+  assert_file_is "depth-1 symlink outside .agents/skills/ still installs via merge walk" \
+    "$TARGET/.claude/skills/other/foo.md" "extra content"
+  teardown_sandbox
+}
+
+# SF5: no prior test covered a genuine skill directory (not a symlink, not a
+# link-text file) at depth 1 alongside a real link and a genuine file. A
+# too-greedy subtree skip (e.g. reverting the F3 predicate to a blanket
+# `skills/*) continue`) would silently drop the real directory skill and the
+# genuine file too, since it's indistinguishable from that failure mode using
+# only the link-materialization tests above.
+test_mixed_skills_fixture_installs_link_dir_and_readme() {
+  setup_sandbox
+  add_agents_fixture
+  mkdir -p "$FIXTURE/.claude/skills/realdir/sub"
+  printf 'nested content\n' > "$FIXTURE/.claude/skills/realdir/sub/nested.md"
+  printf 'skills index\n' > "$FIXTURE/.claude/skills/README.md"
+  fixture_commit mixed-skills
+  run_install
+  assert_file_is "mixed fixture: symlinked skill materialized" \
+    "$TARGET/.claude/skills/tdd/SKILL.md" "v1 tdd skill"
+  assert_file_is "mixed fixture: real directory skill with nested file installed" \
+    "$TARGET/.claude/skills/realdir/sub/nested.md" "nested content"
+  assert_file_is "mixed fixture: genuine depth-1 README.md installed" \
+    "$TARGET/.claude/skills/README.md" "skills index"
+  teardown_sandbox
+}
+
 test_state_is_superset_when_cursor_deselected() {
   setup_sandbox
   run_install
@@ -989,4 +1029,6 @@ test_agents_installed_even_when_only_cursor_selected
 test_windows_clone_link_text_file_is_not_installed
 test_windows_clone_materializes_skill_via_merge_skill_links
 test_genuine_file_at_skills_depth_one_still_installs
+test_nonagents_symlink_still_installed_by_merge_walk
+test_mixed_skills_fixture_installs_link_dir_and_readme
 finish

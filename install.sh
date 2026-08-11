@@ -422,8 +422,8 @@ sha256_file() {
 # symlink.
 
 # skill_link_name_from_content CONTENT — prints the resolved <name> on
-# stdout and returns 0 if CONTENT (already whitespace-stripped) matches the
-# skill-link pattern above; returns 1 otherwise.
+# stdout and returns 0 if CONTENT (already trimmed of leading/trailing
+# whitespace) matches the skill-link pattern above; returns 1 otherwise.
 skill_link_name_from_content() {
   local rest="$1"
   while :; do
@@ -437,7 +437,7 @@ skill_link_name_from_content() {
       local name="${rest#.agents/skills/}"
       name="${name%/}"
       case "$name" in
-        ''|*/*) return 1 ;;
+        ''|*/*|'.'|'..') return 1 ;;
         *) printf '%s' "$name"; return 0 ;;
       esac
       ;;
@@ -445,17 +445,37 @@ skill_link_name_from_content() {
   esac
 }
 
+# trim_ends CONTENT — echoes CONTENT with leading/trailing whitespace
+# stripped, preserving any internal whitespace (e.g. a skill name with a
+# space in it). Shared by is_skill_link and merge_skill_links so the two
+# stay in step; do not swap either back to `tr -d '[:space:]'`, which also
+# strips internal whitespace and would make the two disagree.
+trim_ends() {
+  sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
 # is_skill_link PATH — true if PATH (absolute, a direct child of a
-# .claude/skills/ directory) satisfies the skill-link predicate above.
+# .claude/skills/ directory) satisfies the skill-link predicate above. A
+# symlink only counts if its target actually resolves to a
+# .agents/skills/<name> link (skill_link_name_from_content); the sole owner
+# (merge_skill_links) can only materialise that shape, so an unrecognised
+# symlink target must NOT be claimed here — leaving it unclaimed lets
+# merge_claude_dir's ordinary `find -L` merge walk install it instead of the
+# content silently vanishing.
 is_skill_link() {
   local path="$1"
-  [ -L "$path" ] && return 0
+  if [ -L "$path" ]; then
+    local target
+    target="$(readlink "$path" | trim_ends)"
+    skill_link_name_from_content "$target" >/dev/null
+    return
+  fi
   [ -f "$path" ] || return 1
   local size
   size="$(wc -c < "$path" 2>/dev/null | tr -d ' ')"
   [ -n "$size" ] && [ "$size" -lt 256 ] || return 1
   local content
-  content="$(tr -d '[:space:]' < "$path")"
+  content="$(trim_ends < "$path")"
   skill_link_name_from_content "$content" >/dev/null
 }
 
@@ -467,14 +487,19 @@ is_skill_link() {
 compute_skill_link_names() {
   : > "$WORK/skill_link_names.txt"
   local base="$WORK/pack/.claude/skills"
-  [ -d "$base" ] || return 0
-  local entry
-  for entry in "$base"/*; do
-    [ -e "$entry" ] || [ -L "$entry" ] || continue
-    if is_skill_link "$entry"; then
-      basename "$entry" >> "$WORK/skill_link_names.txt"
-    fi
-  done
+  if [ -d "$base" ]; then
+    local entry
+    for entry in "$base"/*; do
+      [ -e "$entry" ] || [ -L "$entry" ] || continue
+      if is_skill_link "$entry"; then
+        basename "$entry" >> "$WORK/skill_link_names.txt"
+      fi
+    done
+  fi
+  local n
+  n="$(wc -l < "$WORK/skill_link_names.txt" | tr -d ' ')"
+  log "found $n skill link name(s)"
+  if [ "$n" = "0" ]; then STEP_STATUS=skip; fi
 }
 
 is_skill_link_name() {
@@ -1401,13 +1426,11 @@ merge_skill_links() {
   [ -d "$skills_base" ] || { STEP_STATUS=skip; log "no .claude/skills/ in pack"; return 0; }
 
   local n_added0=$N_ADDED n_updated0=$N_UPDATED n_conflict0=$N_CONFLICT
-  local any=0
 
   local entry
   for entry in "$skills_base"/*; do
     [ -e "$entry" ] || [ -L "$entry" ] || continue
     is_skill_link "$entry" || continue
-    any=1
 
     local entry_name content
     entry_name="$(basename "$entry")"
@@ -1416,7 +1439,7 @@ merge_skill_links() {
     else
       content="$(cat "$entry")"
     fi
-    content="$(printf '%s' "$content" | tr -d '[:space:]')"
+    content="$(printf '%s' "$content" | trim_ends)"
 
     local name
     if ! name="$(skill_link_name_from_content "$content")"; then
@@ -1438,7 +1461,6 @@ merge_skill_links() {
   done
 
   log "added $N_ADDED · updated $N_UPDATED · kept $N_KEPT · conflicts $N_CONFLICT"
-  if [ "$any" = "0" ]; then STEP_STATUS=skip; fi
   if [ "$N_ADDED" -eq "$n_added0" ] && [ "$N_UPDATED" -eq "$n_updated0" ]; then STEP_STATUS=skip; fi
   if [ "$N_CONFLICT" -gt "$n_conflict0" ]; then STEP_STATUS=warn; fi
 }
@@ -1678,7 +1700,7 @@ main() {
   divider "fetch"
   make_workdir
   step "Fetch pack from GitHub"  fetch_pack
-  compute_skill_link_names
+  step "Compute skill link names" compute_skill_link_names
 
   divider "select"
   detect_jq_runtime

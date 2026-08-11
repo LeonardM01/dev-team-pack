@@ -207,11 +207,18 @@ function Get-SkillLinkText {
 }
 
 # Test-SkillLinkEntry — true if Entry (a direct child of a .claude/skills/
-# directory) is a symlink, OR is a regular file smaller than 256 bytes whose
-# trimmed content matches $script:SkillLinkContentPattern.
+# directory) is a symlink whose target actually resolves to a
+# .agents/skills/<name> link, OR is a regular file smaller than 256 bytes
+# whose trimmed content matches $script:SkillLinkContentPattern. A symlink
+# only counts if it resolves: the sole owner (Merge-SkillLinks) can only
+# materialise that shape, so an unrecognised symlink target must NOT be
+# claimed here — leaving it unclaimed lets Merge-ClaudeDir's ordinary
+# -Recurse merge walk install it instead of the content silently vanishing.
 function Test-SkillLinkEntry {
   param($Entry)
-  if ($Entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $true }
+  if ($Entry.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    return [bool](Resolve-SkillLinkName (Get-SkillLinkText $Entry))
+  }
   if ($Entry.PSIsContainer) { return $false }
   if ($Entry.Length -ge 256) { return $false }
   $text = Get-SkillLinkText $Entry
@@ -229,7 +236,9 @@ function Resolve-SkillLinkName {
   $norm = ($LinkText -replace '\\', '/').Trim()
   $m = [regex]::Match($norm, $script:SkillLinkNamePattern)
   if (-not $m.Success) { return $null }
-  return $m.Groups['name'].Value
+  $name = $m.Groups['name'].Value
+  if ($name -in '.', '..') { return $null }
+  return $name
 }
 
 # Get-SkillLinkNames — the .claude/skills/<name> entries (immediate
@@ -241,11 +250,17 @@ function Get-SkillLinkNames {
   param([string]$Work)
   $skillsBase = Join-Path $Work 'pack\.claude\skills'
   $names = New-Object System.Collections.Generic.List[string]
-  if (-not (Test-Path $skillsBase)) { return $names }
+  # The comma operator prevents PowerShell's pipeline output unrolling from
+  # scalarising the List[string] on return: without it, the caller sees
+  # $null (empty list), a bare [string] (single-element list), or an
+  # [object[]] (multi-element list) depending on Count, and any future
+  # .Count/.Add() call on the result would break inconsistently. -contains
+  # tolerates the unrolled forms today, but don't rely on that continuing.
+  if (-not (Test-Path $skillsBase)) { return ,$names }
   Get-ChildItem -Path $skillsBase -Force | ForEach-Object {
     if (Test-SkillLinkEntry $_) { [void]$names.Add($_.Name) }
   }
-  return $names
+  return ,$names
 }
 
 # Test-SkillLinkRelPath — true if RelPath (forward-slash, pack-relative,
@@ -253,7 +268,18 @@ function Get-SkillLinkNames {
 # <name> is in $script:SkillLinkNames.
 function Test-SkillLinkRelPath {
   param([string]$RelPath)
-  $m = [regex]::Match($RelPath, '^\.claude/skills/(?<name>[^/]+)$')
+  # Unanchored at the tail (no trailing $) to mirror Merge-ClaudeDir's
+  # '^skills/(?<name>[^/]+)': on WinPS 5.1, Get-ChildItem -Recurse follows
+  # directory reparse points (see the comment in Merge-ClaudeDir), so a
+  # real-symlink clone enumerates .claude/skills/<name>/... as regular
+  # files too. Those must be excluded from the tree hash the same way
+  # Merge-ClaudeDir excludes them from the merge walk, or a Windows clone's
+  # hash diverges from a Unix clone's for identical content. Greedy
+  # [^/]+ still resolves a genuine depth-1 file like
+  # .claude/skills/README.md to name "README.md", which is not in
+  # $script:SkillLinkNames, so it stays out of this predicate and remains
+  # hashed normally.
+  $m = [regex]::Match($RelPath, '^\.claude/skills/(?<name>[^/]+)')
   if (-not $m.Success) { return $false }
   return $script:SkillLinkNames -contains $m.Groups['name'].Value
 }
@@ -536,10 +562,11 @@ function Merge-SkillLinks {
   Get-ChildItem -Path $skillsBase -Force | Where-Object { Test-SkillLinkEntry $_ } | ForEach-Object {
     $entry = $_
 
-    $name = Resolve-SkillLinkName (Get-SkillLinkText $entry)
+    $linkText = Get-SkillLinkText $entry
+    $name = Resolve-SkillLinkName $linkText
 
     if (-not $name) {
-      Write-Log "skip .claude/skills/$($entry.Name) (unrecognized link target: $(Get-SkillLinkText $entry))"
+      Write-Log "skip .claude/skills/$($entry.Name) (unrecognized link target: $linkText)"
       return
     }
 
