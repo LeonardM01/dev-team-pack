@@ -422,6 +422,12 @@ pack_tree_hash
   Invoke-Install -Fixture $Fixture -Target $Sandbox18 | Out-Null
   $md18Path = Join-Path $Sandbox18 'CLAUDE.md'
   $md18 = [System.IO.File]::ReadAllText($md18Path)
+  # This substitution only does anything because case 10 mutated the fixture
+  # pack's CLAUDE.md to 'v2 pack docs' earlier in this shared run, so the
+  # freshly-installed case18 baseline already contains that text. Assert the
+  # precondition explicitly so a reordering or a subset run fails loudly
+  # here instead of silently no-op'ing the edit below.
+  Assert-True "case18 precondition: fresh install contains 'v2 pack docs'" ($md18 -match 'v2 pack docs')
   [System.IO.File]::WriteAllText($md18Path, ($md18 -replace 'v2 pack docs', 'hand edited block'))
   Set-Content -Path (Join-Path $Fixture '.cursor/rules/base.mdc') -Value 'v18 rule'
   Push-Location $Fixture
@@ -479,7 +485,11 @@ pack_tree_hash
   Push-Location $Fixture
   try { git -c user.email=t@example.com -c user.name=test commit -aqm v22 } finally { Pop-Location }
   $r22 = Invoke-Install -Fixture $Fixture -Target $Sandbox20
-  Assert-True "case22 conflict reported" ($r22.Out -match 'conflict')
+  # Print-Summary unconditionally prints "... {N} conflicts" every run
+  # (N=0 on a clean run), so a bare 'conflict' match can never fail. Anchor
+  # to the per-file log line Invoke-FileAction emits only on an actual
+  # conflict.
+  Assert-True "case22 conflict reported" ($r22.Out -match 'conflict\s+\.agents/skills/tdd/SKILL\.md')
   Assert-Eq "case22 local edit preserved" (Get-Content -Raw $agentsSkill20).Trim() 'mine'
   Invoke-Install -Fixture $Fixture -Target $Sandbox20 -Force | Out-Null
   Assert-Eq "case22 -Force overwrites the conflict" (Get-Content -Raw $agentsSkill20).Trim() 'v3 tdd skill'

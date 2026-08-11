@@ -159,6 +159,105 @@ function Get-Sha256String {
   finally { $sha.Dispose() }
 }
 
+# --- Skill link predicate --------------------------------------------------
+# Shared by Get-PackVersion, Merge-ClaudeDir, and Merge-SkillLinks so all
+# three agree on which .claude/skills/<name> entries are link placeholders
+# (owned exclusively by Merge-SkillLinks) versus genuine files (e.g. a
+# README.md, which installs and hashes normally like anything else). Mirrors
+# install.sh's is_skill_link predicate exactly.
+
+# Regex for the predicate itself: matches only relative link text (a real
+# symlink's stored target, or the literal content of a Windows clone's
+# git-materialized link-text file). Used only to CLASSIFY whether a depth-1
+# entry is a skill link at all.
+$script:SkillLinkContentPattern = '^(?:\.\./)*\.agents/skills/[^/]+/?$'
+
+# Regex used only to RESOLVE the <name> once an entry is already known to be
+# a skill link (see Test-SkillLinkEntry). On Windows PowerShell 5.1,
+# FileSystemInfo.Target for a real symlink may report an absolute path
+# rather than the relative link text, so this tolerates an arbitrary prefix
+# and matches on the trailing .agents/skills/<name> segment instead of
+# anchoring the whole string. Still anchored at the end and requires the
+# literal segment, so arbitrary content does not match.
+$script:SkillLinkNamePattern = '(?:^|/)\.agents/skills/(?<name>[^/]+)/?$'
+
+# Get-SkillLinkText — returns the raw link text for a .claude/skills/<x>
+# entry: the symlink target, or the trimmed content of a small text file (a
+# Windows clone's git-materialized link-text file placeholder).
+function Get-SkillLinkText {
+  param($Entry)
+  if ($Entry.Target) {
+    # WinPS 5.1: FileSystemInfo.Target is a string[] (scalar only since
+    # PS6). Chain of failure if this isn't scalarised first: an array left
+    # operand makes -notmatch act as a FILTER (an empty array is falsy)
+    # rather than return a boolean, so a guard built on it silently never
+    # fires — and an array operand also never populates $Matches, so
+    # $Matches['name'] silently returns whatever a PRIOR -match left behind.
+    # That previously fed a stale name into $resolvedSrc and copied every
+    # skill into every entry. Always take the first element explicitly.
+    return [string](@($Entry.Target)[0])
+  }
+  if ($Entry.PSIsContainer) { return $null }
+  try {
+    return ([System.IO.File]::ReadAllText($Entry.FullName))
+  } catch {
+    Write-Log "skip .claude/skills/$($Entry.Name) (unreadable: $($_.Exception.Message))"
+    return $null
+  }
+}
+
+# Test-SkillLinkEntry — true if Entry (a direct child of a .claude/skills/
+# directory) is a symlink, OR is a regular file smaller than 256 bytes whose
+# trimmed content matches $script:SkillLinkContentPattern.
+function Test-SkillLinkEntry {
+  param($Entry)
+  if ($Entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $true }
+  if ($Entry.PSIsContainer) { return $false }
+  if ($Entry.Length -ge 256) { return $false }
+  $text = Get-SkillLinkText $Entry
+  if (-not $text) { return $false }
+  $norm = ($text -replace '\\', '/').Trim()
+  return $norm -match $script:SkillLinkContentPattern
+}
+
+# Resolve-SkillLinkName — extracts the .agents/skills/<name> segment from
+# LinkText using the lenient trailing-match pattern (see
+# $script:SkillLinkNamePattern above). Returns $null if it doesn't match.
+function Resolve-SkillLinkName {
+  param([string]$LinkText)
+  if (-not $LinkText) { return $null }
+  $norm = ($LinkText -replace '\\', '/').Trim()
+  $m = [regex]::Match($norm, $script:SkillLinkNamePattern)
+  if (-not $m.Success) { return $null }
+  return $m.Groups['name'].Value
+}
+
+# Get-SkillLinkNames — the .claude/skills/<name> entries (immediate
+# children) that satisfy the skill-link predicate. Computed once in the main
+# script body right after Fetch-Pack and stored in $script:SkillLinkNames;
+# Get-PackVersion, Merge-ClaudeDir, and Merge-SkillLinks all read that same
+# set so the three call sites can never disagree.
+function Get-SkillLinkNames {
+  param([string]$Work)
+  $skillsBase = Join-Path $Work 'pack\.claude\skills'
+  $names = New-Object System.Collections.Generic.List[string]
+  if (-not (Test-Path $skillsBase)) { return $names }
+  Get-ChildItem -Path $skillsBase -Force | ForEach-Object {
+    if (Test-SkillLinkEntry $_) { [void]$names.Add($_.Name) }
+  }
+  return $names
+}
+
+# Test-SkillLinkRelPath — true if RelPath (forward-slash, pack-relative,
+# e.g. ".claude/skills/tdd") is a depth-1 .claude/skills/<name> entry whose
+# <name> is in $script:SkillLinkNames.
+function Test-SkillLinkRelPath {
+  param([string]$RelPath)
+  $m = [regex]::Match($RelPath, '^\.claude/skills/(?<name>[^/]+)$')
+  if (-not $m.Success) { return $false }
+  return $script:SkillLinkNames -contains $m.Groups['name'].Value
+}
+
 function Get-PackVersion {
   param([string]$Work)
   $packDir = Join-Path $Work 'pack'
@@ -174,19 +273,22 @@ function Get-PackVersion {
   # PowerShell's culture-aware default), each entry "path:hash\n" with no
   # extra separator between entries (every line, including the last, ends in
   # \n because bash's printf emits one per line), then hashed as one stream.
-  # A depth-1 entry under .claude/skills/ is a symlink in the repo (see
-  # Merge-SkillLinks). On a real clone it is never enumerated as -File; on a
-  # Windows clone git materializes it as a small text file holding the link
-  # target, which would otherwise change the version hash between platforms
-  # even though the underlying pack content did not change. Exclude it here
-  # so the tree hash agrees with install.sh's `find . -type f`, which already
-  # skips it (symlinks are not -type f).
+  #
+  # A depth-1 entry directly under .claude/skills/ that is a skill link (see
+  # Test-SkillLinkEntry / $script:SkillLinkNames) is excluded here, exactly
+  # as install.sh's pack_tree_hash now excludes the same entries via its own
+  # is_skill_link predicate. This is NOT simply "symlinks aren't -type f":
+  # on a real clone the entry is a symlink and was never enumerated as -File
+  # either way, but on a Windows clone with core.symlinks=false it is a
+  # plain small text file that bash's `find . -type f` WOULD otherwise
+  # include. Applying the identical predicate on both sides is what makes a
+  # Unix clone and a Windows clone of the same pack content hash the same.
   $relPaths = Get-ChildItem -Path $packDir -Recurse -File -Force |
     ForEach-Object {
       $_.FullName.Substring($packDir.Length).TrimStart('\', '/') -replace '\\', '/'
     } |
     Where-Object { $_ -cnotlike '.git/*' } |
-    Where-Object { $_ -cnotmatch '^\.claude/skills/[^/]+$' }
+    Where-Object { -not (Test-SkillLinkRelPath $_) }
 
   $sortedRel = @($relPaths)
   [Array]::Sort($sortedRel, [StringComparer]::Ordinal)
@@ -359,7 +461,7 @@ function Merge-ClaudeDir {
   param([string]$Work)
 
   $srcBase = Join-Path $Work 'pack\.claude'
-  if (-not (Test-Path $srcBase)) { return }
+  if (-not (Test-Path $srcBase)) { Write-Log "no .claude/ in pack"; return }
 
   # -Force to match Get-PackVersion's enumeration: without it hidden pack files
   # are version-hashed but never merged, so the pack looks changed forever.
@@ -372,11 +474,18 @@ function Merge-ClaudeDir {
       return
     }
 
-    # A depth-1 entry directly under skills/ is never an installed file: on a
-    # real clone it resolves to a directory symlink (never enumerated as
-    # -File), and on a Windows clone of the pack it is the git-materialized
-    # link-text file. Merge-SkillLinks resolves it explicitly.
-    if ($relNorm -match '^skills/[^/]+$') {
+    # Merge-SkillLinks is the sole owner of any entry under a skill-link
+    # name (see $script:SkillLinkNames), at any depth — not just the
+    # depth-1 path. That matters here specifically: Get-ChildItem -Recurse
+    # follows directory reparse points on Windows PowerShell 5.1 (no
+    # opt-out short of -FollowSymlink, added in PS6), so a real-symlink
+    # clone would otherwise descend into skills/<name>/... and hand
+    # Merge-SkillLinks a second copy of every entry it already owns,
+    # double-counting conflicts. Everything else at this depth, e.g. a
+    # genuine skills/README.md, installs normally like any other file in
+    # .claude/.
+    $skillMatch = [regex]::Match($relNorm, '^skills/(?<name>[^/]+)')
+    if ($skillMatch.Success -and ($script:SkillLinkNames -contains $skillMatch.Groups['name'].Value)) {
       return
     }
 
@@ -395,7 +504,7 @@ function Merge-AgentsDir {
   param([string]$Work)
 
   $srcBase = Join-Path $Work 'pack\.agents'
-  if (-not (Test-Path $srcBase)) { return }
+  if (-not (Test-Path $srcBase)) { Write-Log "no .agents/ in pack"; return }
 
   Get-ChildItem -Path $srcBase -Recurse -File -Force | ForEach-Object {
     $srcFile = $_.FullName
@@ -413,32 +522,26 @@ function Merge-AgentsDir {
 # follow reparse points, -FollowSymlink does not exist in Windows PowerShell
 # 5.1, and a Windows clone usually materializes the entry as a plain text
 # file containing the link text anyway (see Get-PackVersion). Resolve each
-# depth-1 non-directory entry explicitly and copy the real .agents/ content
-# under the same .claude/skills/<name> destination and key that bash's
-# `find -L` walk produces, so both installers agree byte-for-byte.
+# skill-link entry (see Test-SkillLinkEntry) explicitly and copy the real
+# .agents/ content under the same .claude/skills/<name> destination and key
+# that bash's `find -L` walk / merge_skill_links produces, so both
+# installers agree byte-for-byte. Merge-ClaudeDir skips every entry this
+# function owns, so this is the sole owner of those keys on both platforms.
 function Merge-SkillLinks {
   param([string]$Work)
 
   $skillsBase = Join-Path $Work 'pack\.claude\skills'
   if (-not (Test-Path $skillsBase)) { return }
 
-  Get-ChildItem -Path $skillsBase -Force | Where-Object {
-    -not ($_.PSIsContainer -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint))
-  } | ForEach-Object {
+  Get-ChildItem -Path $skillsBase -Force | Where-Object { Test-SkillLinkEntry $_ } | ForEach-Object {
     $entry = $_
 
-    if ($entry.Target) {
-      $linkText = $entry.Target
-    } else {
-      $linkText = ([System.IO.File]::ReadAllText($entry.FullName)).Trim()
-    }
-    $linkText = $linkText -replace '\\', '/'
+    $name = Resolve-SkillLinkName (Get-SkillLinkText $entry)
 
-    if ($linkText -notmatch '^(?:\.\./)*\.agents/skills/(?<name>[^/]+)/?$') {
-      Write-Log "skip .claude/skills/$($entry.Name) (unrecognized link target: $linkText)"
+    if (-not $name) {
+      Write-Log "skip .claude/skills/$($entry.Name) (unrecognized link target: $(Get-SkillLinkText $entry))"
       return
     }
-    $name = $Matches['name']
 
     $resolvedSrc = Join-Path $Work "pack\.agents\skills\$name"
     if (-not (Test-Path $resolvedSrc)) {
@@ -677,6 +780,7 @@ try {
   Require-TargetWritable
   $WORK = Get-WorkDir
   Fetch-Pack -Work $WORK
+  $script:SkillLinkNames = Get-SkillLinkNames -Work $WORK
 
   $ver = Get-PackVersion -Work $WORK
   Write-Log "pack version $($ver.Version) ($($ver.Source))"

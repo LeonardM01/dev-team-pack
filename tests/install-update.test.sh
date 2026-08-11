@@ -484,11 +484,24 @@ run_install_with_tools() {
 }
 
 add_agents_fixture() {
-  mkdir -p "$FIXTURE/.agents/skills/tdd" "$FIXTURE/.claude/skills"
+  mkdir -p "$FIXTURE/.agents/skills/tdd/agents" "$FIXTURE/.claude/skills"
   printf 'v1 tdd skill\n' > "$FIXTURE/.agents/skills/tdd/SKILL.md"
   printf 'v1 tdd tests\n' > "$FIXTURE/.agents/skills/tdd/tests.md"
+  printf 'v1 openai config\n' > "$FIXTURE/.agents/skills/tdd/agents/openai.yaml"
   ln -s ../../.agents/skills/tdd "$FIXTURE/.claude/skills/tdd"
   fixture_commit agents
+}
+
+# A Windows clone with core.symlinks=false checks out .claude/skills/tdd not
+# as a symlink but as a plain text file holding the link target — this is
+# what Merge-SkillLinks / merge_skill_links resolve, and what the F3
+# skill-link predicate must classify as a link even though `[ -L ... ]` is
+# false for it.
+add_agents_fixture_winclone() {
+  mkdir -p "$FIXTURE/.agents/skills/tdd" "$FIXTURE/.claude/skills"
+  printf 'v1 tdd skill\n' > "$FIXTURE/.agents/skills/tdd/SKILL.md"
+  printf '../../.agents/skills/tdd' > "$FIXTURE/.claude/skills/tdd"
+  fixture_commit agents-winclone
 }
 
 test_fresh_install_adds_agents_dir() {
@@ -565,6 +578,13 @@ test_agents_deleted_locally_is_not_readded() {
   printf 'v2 tdd skill\n' > "$FIXTURE/.agents/skills/tdd/SKILL.md"
   fixture_commit v2
   run_install
+  # This assertion alone passes trivially against pre-fix code too: pre-fix,
+  # .agents/ was never installed at all, so the file was never present to
+  # begin with. Pin it against the file that IS still present and IS
+  # expected to update, so a regression that stops installing .agents/
+  # entirely cannot masquerade as "deletion respected".
+  assert_file_is "sibling .agents/ file still updated" \
+    "$TARGET/.agents/skills/tdd/SKILL.md" "v2 tdd skill"
   assert_file_absent "deleted .agents/ file not resurrected" \
     "$TARGET/.agents/skills/tdd/tests.md"
   teardown_sandbox
@@ -578,6 +598,46 @@ test_agents_installed_even_when_only_cursor_selected() {
     "$TARGET/.agents/skills/tdd/SKILL.md" "v1 tdd skill"
   assert_file_absent "materialized .claude/skills/ not installed when claude deselected" \
     "$TARGET/.claude/skills/tdd"
+  teardown_sandbox
+}
+
+test_windows_clone_link_text_file_is_not_installed() {
+  setup_sandbox
+  add_agents_fixture_winclone
+  run_install
+  assert_file_is ".agents/ still installs on a Windows-clone-style fixture" \
+    "$TARGET/.agents/skills/tdd/SKILL.md" "v1 tdd skill"
+  if [ -f "$TARGET/.claude/skills/tdd" ] && [ ! -d "$TARGET/.claude/skills/tdd" ]; then
+    fail ".claude/skills/tdd is not installed as a raw link-text file" \
+      "found a regular file with link-text content instead of a materialized skill"
+  else
+    ok ".claude/skills/tdd is not installed as a raw link-text file"
+  fi
+  teardown_sandbox
+}
+
+test_windows_clone_materializes_skill_via_merge_skill_links() {
+  setup_sandbox
+  add_agents_fixture_winclone
+  run_install
+  assert_file_is "merge_skill_links materializes the Windows-clone skill link" \
+    "$TARGET/.claude/skills/tdd/SKILL.md" "v1 tdd skill"
+  if [ -d "$TARGET/.claude/skills/tdd" ]; then
+    ok "materialized skill dir is a real directory"
+  else
+    fail "materialized skill dir is a real directory" "not a directory"
+  fi
+  teardown_sandbox
+}
+
+test_genuine_file_at_skills_depth_one_still_installs() {
+  setup_sandbox
+  mkdir -p "$FIXTURE/.claude/skills"
+  printf 'skills index\n' > "$FIXTURE/.claude/skills/README.md"
+  fixture_commit skills-readme
+  run_install
+  assert_file_is "genuine file at .claude/skills/ depth 1 still installs" \
+    "$TARGET/.claude/skills/README.md" "skills index"
   teardown_sandbox
 }
 
@@ -926,4 +986,7 @@ test_agents_update_propagates_to_both_copies
 test_agents_conflict_is_reported_not_overwritten
 test_agents_deleted_locally_is_not_readded
 test_agents_installed_even_when_only_cursor_selected
+test_windows_clone_link_text_file_is_not_installed
+test_windows_clone_materializes_skill_via_merge_skill_links
+test_genuine_file_at_skills_depth_one_still_installs
 finish

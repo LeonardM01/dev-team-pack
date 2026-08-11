@@ -409,12 +409,95 @@ sha256_file() {
   esac
 }
 
+# --- Skill link predicate --------------------------------------------------
+# Shared by merge_claude_dir, merge_skill_links, and pack_tree_hash so all
+# three agree on which .claude/skills/<name> entries are link placeholders
+# (owned exclusively by merge_skill_links) versus genuine files (e.g. a
+# README.md, which installs and hashes normally like anything else).
+#
+# An entry is a "skill link" iff it is a symlink, OR it is a regular file
+# smaller than 256 bytes whose trimmed content matches
+# ^(\.\./)*\.agents/skills/[^/]+/?$ — the git-materialized link-text file a
+# Windows clone with core.symlinks=false produces in place of the real
+# symlink.
+
+# skill_link_name_from_content CONTENT — prints the resolved <name> on
+# stdout and returns 0 if CONTENT (already whitespace-stripped) matches the
+# skill-link pattern above; returns 1 otherwise.
+skill_link_name_from_content() {
+  local rest="$1"
+  while :; do
+    case "$rest" in
+      ../*) rest="${rest#../}" ;;
+      *) break ;;
+    esac
+  done
+  case "$rest" in
+    .agents/skills/*)
+      local name="${rest#.agents/skills/}"
+      name="${name%/}"
+      case "$name" in
+        ''|*/*) return 1 ;;
+        *) printf '%s' "$name"; return 0 ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# is_skill_link PATH — true if PATH (absolute, a direct child of a
+# .claude/skills/ directory) satisfies the skill-link predicate above.
+is_skill_link() {
+  local path="$1"
+  [ -L "$path" ] && return 0
+  [ -f "$path" ] || return 1
+  local size
+  size="$(wc -c < "$path" 2>/dev/null | tr -d ' ')"
+  [ -n "$size" ] && [ "$size" -lt 256 ] || return 1
+  local content
+  content="$(tr -d '[:space:]' < "$path")"
+  skill_link_name_from_content "$content" >/dev/null
+}
+
+# compute_skill_link_names — populates $WORK/skill_link_names.txt with the
+# .claude/skills/<name> entries (one per line) that satisfy the predicate.
+# Runs once, right after fetch_pack; merge_claude_dir, merge_skill_links, and
+# pack_tree_hash all read the same file so the three call sites can never
+# disagree about which skills/<x> entries are links.
+compute_skill_link_names() {
+  : > "$WORK/skill_link_names.txt"
+  local base="$WORK/pack/.claude/skills"
+  [ -d "$base" ] || return 0
+  local entry
+  for entry in "$base"/*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    if is_skill_link "$entry"; then
+      basename "$entry" >> "$WORK/skill_link_names.txt"
+    fi
+  done
+}
+
+is_skill_link_name() {
+  [ -s "$WORK/skill_link_names.txt" ] || return 1
+  grep -qxF "$1" "$WORK/skill_link_names.txt"
+}
+
 pack_tree_hash() {
   (
     cd "$WORK/pack" || exit 1
     find . -type f -not -path './.git/*' -print0 \
       | LC_ALL=C sort -z \
       | while IFS= read -r -d '' f; do
+          local rest
+          case "$f" in
+            ./.claude/skills/*)
+              rest="${f#./.claude/skills/}"
+              case "$rest" in
+                */*) ;;
+                *) is_skill_link_name "$rest" && continue ;;
+              esac
+              ;;
+          esac
           printf '%s:%s\n' "$f" "$(sha256_file "$f")"
         done
   ) | sha256_stdin
@@ -1276,8 +1359,21 @@ merge_claude_dir() {
     local rel="${src_file#"$src_base/"}"
     case "$rel" in
       agent-memory/*) continue ;;
-      skills/*/*) ;;
-      skills/*) continue ;;
+    esac
+    case "$rel" in
+      skills/*)
+        # merge_skill_links is the sole owner of any entry under a
+        # skill-link name (see is_skill_link_name / compute_skill_link_names
+        # above), at any depth — not just the depth-1 path — so a real
+        # symlink clone is never double-processed. Everything else at this
+        # depth, e.g. a genuine skills/README.md, installs normally like any
+        # other file in .claude/.
+        local skill_name="${rel#skills/}"
+        skill_name="${skill_name%%/*}"
+        if is_skill_link_name "$skill_name"; then
+          continue
+        fi
+        ;;
     esac
 
     if [ "$(basename "$rel")" = "settings.local.json" ] && [ -f "$TARGET/.claude/settings.local.json" ]; then
@@ -1290,6 +1386,59 @@ merge_claude_dir() {
   done < <(find -L "$src_base" -type f -print0)
 
   log "added $N_ADDED · updated $N_UPDATED · kept $N_KEPT · conflicts $N_CONFLICT · local settings preserved $preserved"
+  if [ "$N_ADDED" -eq "$n_added0" ] && [ "$N_UPDATED" -eq "$n_updated0" ]; then STEP_STATUS=skip; fi
+  if [ "$N_CONFLICT" -gt "$n_conflict0" ]; then STEP_STATUS=warn; fi
+}
+
+merge_skill_links() {
+  if ! printf ' %s ' "$SELECTED_TOOLS" | grep -q ' claude '; then
+    STEP_STATUS=skip
+    log "claude not selected"
+    return 0
+  fi
+
+  local skills_base="$WORK/pack/.claude/skills"
+  [ -d "$skills_base" ] || { STEP_STATUS=skip; log "no .claude/skills/ in pack"; return 0; }
+
+  local n_added0=$N_ADDED n_updated0=$N_UPDATED n_conflict0=$N_CONFLICT
+  local any=0
+
+  local entry
+  for entry in "$skills_base"/*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    is_skill_link "$entry" || continue
+    any=1
+
+    local entry_name content
+    entry_name="$(basename "$entry")"
+    if [ -L "$entry" ]; then
+      content="$(readlink "$entry")"
+    else
+      content="$(cat "$entry")"
+    fi
+    content="$(printf '%s' "$content" | tr -d '[:space:]')"
+
+    local name
+    if ! name="$(skill_link_name_from_content "$content")"; then
+      log "skip .claude/skills/$entry_name (unrecognized link target: $content)"
+      continue
+    fi
+
+    local resolved_src="$WORK/pack/.agents/skills/$name"
+    if [ ! -d "$resolved_src" ]; then
+      log "skip .claude/skills/$entry_name (link target .agents/skills/$name not found in pack)"
+      continue
+    fi
+
+    while IFS= read -r -d '' sub_file; do
+      local sub_rel="${sub_file#"$resolved_src/"}"
+      local dest="$TARGET/.claude/skills/$entry_name/$sub_rel"
+      apply_file_action ".claude/skills/$entry_name/$sub_rel" "$dest" "$sub_file"
+    done < <(find "$resolved_src" -type f -print0)
+  done
+
+  log "added $N_ADDED · updated $N_UPDATED · kept $N_KEPT · conflicts $N_CONFLICT"
+  if [ "$any" = "0" ]; then STEP_STATUS=skip; fi
   if [ "$N_ADDED" -eq "$n_added0" ] && [ "$N_UPDATED" -eq "$n_updated0" ]; then STEP_STATUS=skip; fi
   if [ "$N_CONFLICT" -gt "$n_conflict0" ]; then STEP_STATUS=warn; fi
 }
@@ -1529,6 +1678,7 @@ main() {
   divider "fetch"
   make_workdir
   step "Fetch pack from GitHub"  fetch_pack
+  compute_skill_link_names
 
   divider "select"
   detect_jq_runtime
@@ -1560,6 +1710,7 @@ main() {
   step "Stage filtered pack"     stage_filtered_pack
   step "Merge .agents/ skills"   merge_agents_dir
   step "Merge .claude/ config"   merge_claude_dir
+  step "Merge .claude/ skill links" merge_skill_links
   step "Merge .cursor/ config"   merge_cursor_dir
   step "Install .mcp.json"       copy_mcp_json
   step "Update CLAUDE.md"        merge_claude_md
