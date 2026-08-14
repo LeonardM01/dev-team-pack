@@ -19,7 +19,7 @@
 | `rules/ron-docs.mdc` | `.claude/agents/docs-maintainer.md` |
 | `rules/jira-start.mdc` | `.claude/skills/jira-start/SKILL.md` |
 | `rules/linear-start.mdc` | `.claude/skills/linear-start/SKILL.md` |
-| `rules/grill-me.mdc` | `.claude/skills/grill-me/SKILL.md` |
+| `rules/grill-with-docs.mdc` | `.claude/skills/grill-with-docs/SKILL.md` |
 | `rules/using-superpowers.mdc` | `.claude/skills/using-superpowers/SKILL.md` |
 
 ## MCP server approval

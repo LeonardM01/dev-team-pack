@@ -39,7 +39,7 @@ You have read/search tools (Read, Glob, Grep, LS, NotebookRead, WebFetch, WebSea
 ## Core Process
 
 **0. Brainstorming (MANDATORY before any plan)**
-Before doing pattern analysis or producing a blueprint, you MUST invoke the `brainstorming` skill via the Skill tool to interview the user. Surface ambiguities, requirements, edge cases, and design choices through questions BEFORE committing to an architecture. Do not skip this step even when the request seems clear — the goal is to ground every plan in the user's actual intent, not your inferred one. Only after the user has answered your questions and confirmed direction may you proceed to step 1.
+Before doing pattern analysis or producing a blueprint, you MUST invoke the `grill-with-docs` skill via the Skill tool to interview the user. Surface ambiguities, requirements, edge cases, and design choices through questions BEFORE committing to an architecture. Do not skip this step even when the request seems clear — the goal is to ground every plan in the user's actual intent, not your inferred one. Only after the user has answered your questions and confirmed direction may you proceed to step 1.
 
 **1. Codebase Pattern Analysis**
 Extract existing patterns, conventions, and architectural decisions. Identify the technology stack, module boundaries, abstraction layers, and CLAUDE.md guidelines. Find similar features to understand established approaches. Identify the project's canonical build / test / lint / run commands (from CLAUDE.md, package manifests, Makefiles, Xcode schemes, Expo config, etc.) — these become the verification commands in every delegation packet.

@@ -134,8 +134,8 @@ description: "Kick off work on a Linear issue: prompt for issue ID + repo path, 
 alwaysApply: false
 ---`,
 
-  grillMe: `---
-description: "Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Trigger via @grill-me or when user wants to stress-test a plan, get grilled on their design, or mentions 'grill me'."
+  grillWithDocs: `---
+description: "Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree, capturing ADRs and a glossary as decisions are resolved. Trigger via @grill-with-docs or when user wants to stress-test a plan, get grilled on their design, or uses any 'grill' trigger phrase."
 alwaysApply: false
 ---`,
 
@@ -388,7 +388,7 @@ const cursorReadme = `# .cursor/ — generated files
 | \`rules/ron-docs.mdc\` | \`.claude/agents/docs-maintainer.md\` |
 | \`rules/jira-start.mdc\` | \`.claude/skills/jira-start/SKILL.md\` |
 | \`rules/linear-start.mdc\` | \`.claude/skills/linear-start/SKILL.md\` |
-| \`rules/grill-me.mdc\` | \`.claude/skills/grill-me/SKILL.md\` |
+| \`rules/grill-with-docs.mdc\` | \`.claude/skills/grill-with-docs/SKILL.md\` |
 | \`rules/using-superpowers.mdc\` | \`.claude/skills/using-superpowers/SKILL.md\` |
 
 ## MCP server approval
@@ -449,10 +449,10 @@ const linearSkillMd = read('.claude/skills/linear-start/SKILL.md');
 const linearContent = buildLinearStartRule(linearSkillMd);
 track(writeIdempotent('.cursor/rules/linear-start.mdc', linearContent));
 
-// 5. grill-me rule (simple skill, no Claude-specific tool replacements needed)
-const grillMeMd = read('.claude/skills/grill-me/SKILL.md');
-const grillMeBody = stripClaudeFrontmatter(grillMeMd);
-track(writeIdempotent('.cursor/rules/grill-me.mdc', `${FRONTMATTER.grillMe}\n\n${grillMeBody}`));
+// 5. grill-with-docs rule (simple skill, no Claude-specific tool replacements needed)
+const grillWithDocsMd = read('.claude/skills/grill-with-docs/SKILL.md');
+const grillWithDocsBody = stripClaudeFrontmatter(grillWithDocsMd);
+track(writeIdempotent('.cursor/rules/grill-with-docs.mdc', `${FRONTMATTER.grillWithDocs}\n\n${grillWithDocsBody}`));
 
 // 6. using-superpowers rule (meta-skill, references Skill tool but works as behavioral instruction)
 const superpowersMd = read('.claude/skills/using-superpowers/SKILL.md');
