@@ -143,6 +143,15 @@ alwaysApply: false
 description: "Meta-skill: always check for applicable skills before responding. Invoke relevant skills via @rule mentions BEFORE any response. Trigger at the start of every conversation or when any skill might apply."
 alwaysApply: false
 ---`,
+
+  // alwaysApply:false despite upstream's "Must always apply" — every rule here is
+  // false, and true would inject ~6.5KB into every Cursor request. The always-intent
+  // is carried in the description instead. The OpenAI side sets
+  // allow_implicit_invocation:true because that harness pays the cost only on match.
+  unslop: `---
+description: "Cut AI tells from any writing. Removes puffery, AI vocabulary, em dashes, formulaic structure, and filler, then adds human voice. Trigger via @unslop or whenever writing or editing prose, docs, READMEs, commit messages, or user-facing copy."
+alwaysApply: false
+---`,
 };
 
 // ─── handoff footers (§3.3 + task 1.2) ─────────────────────────────────────
@@ -390,6 +399,7 @@ const cursorReadme = `# .cursor/ — generated files
 | \`rules/linear-start.mdc\` | \`.claude/skills/linear-start/SKILL.md\` |
 | \`rules/grill-with-docs.mdc\` | \`.claude/skills/grill-with-docs/SKILL.md\` |
 | \`rules/using-superpowers.mdc\` | \`.claude/skills/using-superpowers/SKILL.md\` |
+| \`rules/unslop.mdc\` | \`.claude/skills/unslop/SKILL.md\` |
 
 ## MCP server approval
 
@@ -458,6 +468,11 @@ track(writeIdempotent('.cursor/rules/grill-with-docs.mdc', `${FRONTMATTER.grillW
 const superpowersMd = read('.claude/skills/using-superpowers/SKILL.md');
 const superpowersBody = stripClaudeFrontmatter(superpowersMd);
 track(writeIdempotent('.cursor/rules/using-superpowers.mdc', `${FRONTMATTER.usingSuperpowers}\n\n${superpowersBody}`));
+
+// 7. unslop rule (simple skill, no Claude-specific tool replacements needed)
+const unslopMd = read('.claude/skills/unslop/SKILL.md');
+const unslopBody = stripClaudeFrontmatter(unslopMd);
+track(writeIdempotent('.cursor/rules/unslop.mdc', `${FRONTMATTER.unslop}\n\n${unslopBody}`));
 
 // ─── summary ─────────────────────────────────────────────────────────────────
 console.log(`\nSynced ${wrote + unchanged} files, ${unchanged} unchanged.`);

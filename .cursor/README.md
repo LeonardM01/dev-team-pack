@@ -21,6 +21,7 @@
 | `rules/linear-start.mdc` | `.claude/skills/linear-start/SKILL.md` |
 | `rules/grill-with-docs.mdc` | `.claude/skills/grill-with-docs/SKILL.md` |
 | `rules/using-superpowers.mdc` | `.claude/skills/using-superpowers/SKILL.md` |
+| `rules/unslop.mdc` | `.claude/skills/unslop/SKILL.md` |
 
 ## MCP server approval
 

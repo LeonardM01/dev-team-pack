@@ -1,217 +1,229 @@
-# PROGRESS — install `.agents/` + symlinked skills
+# PROGRESS — add `unslop` skill to the dev-team pack
 
-Branch: `feat/installer-update-detection` (pre-existing uncommitted work must be preserved)
+Run started 2026-08-19. Branch: `main`. Working dir: `/Users/leonard/Documents/coding/dev-team`.
 
-## Problem
+## Goal
 
-1. `.agents/` (16 files under `.agents/skills/`) is never installed — neither installer references it.
-2. The seven `.claude/skills/*` entries that are git-mode-120000 symlinks into `../../.agents/skills/<name>`
-   are never installed, because `merge_claude_dir` walks with `find "$src_base" -type f`, and a symlink
-   is not `-type f`.
-
-## Verified facts (do not re-derive)
-
-- `fetch_pack` (install.sh:311) tries `git clone -c core.autocrlf=false --depth 1 --branch $REF`, then
-  falls back to `curl|wget → tar -xz -C "$WORK"` from codeload. Both mechanisms deliver real symlinks
-  on macOS/Linux. Symlinks survive the fetch; the loss is purely in the `find -type f` walk.
-- On Windows both paths are unreliable: `git clone` with default `core.symlinks=false` materializes each
-  symlink as a small regular file containing the link text; `tar.exe` symlink extraction needs privilege.
-- `sha256_file` (install.sh:402) guards with `[ -f "$1" ]`, which *follows* symlinks — a symlink to a file
-  hashes the target's bytes, identical to a real copy. A symlink to a directory returns 1.
-- `pack_tree_hash` (install.sh:412) uses `find . -type f` → excludes the symlinks. `Get-PackVersion`
-  (install.ps1:177) uses `Get-ChildItem -Recurse -File -Force` → on Windows *includes* the git-materialized
-  junk files. This is an existing cross-platform version-hash divergence on the tarball path
-  (`resolve_pack_version` prefers `git rev-parse HEAD` when `.git` exists, so it only bites the tarball path).
-- install.ps1 has no `Merge-CursorDir` at all; its step list is Merge-ClaudeDir → Copy-McpJson →
-  Merge-ClaudeMd → Run-EnvSetup → Run-Analysis → Write-PackState → Print-Summary.
-
-## Architecture decision: materialize, never recreate symlinks
-
-**Chosen:** install `.agents/` as real files, and materialize the symlinked skills as **real files** under
-`.claude/skills/<name>/...` in the target. No symlink is ever created in a target project.
-
-Mechanism, per platform, chosen so the resulting **state key set and every hash are byte-identical**:
-
-- **bash:** change the walk in `merge_claude_dir` from `find "$src_base" -type f` to
-  `find -L "$src_base" -type f`. `-L` descends *through* the directory symlink, so it emits
-  `<src>/skills/tdd/SKILL.md` directly. `rel` extraction is unchanged. Zero new machinery.
-- **PowerShell:** `Get-ChildItem -Recurse` does not reliably descend reparse points and `-FollowSymlink`
-  does not exist in Windows PowerShell 5.1, and on Windows the entries are usually plain text files anyway.
-  So install.ps1 gets an explicit `Merge-SkillLinks` that, for each depth-1 entry under `pack\.claude\skills`
-  that is not a real directory, resolves the link text (`../../.agents/skills/<name>`, either from
-  `$_.Target` for a real reparse point or from the file's own contents for the git-materialized case)
-  against `pack\.agents\skills\<name>` and walks the real directory, emitting the same keys.
-
-Both installers additionally **skip any depth-1 regular file under `.claude/skills/`**
-(`skills/<name>` with no further path component). On Unix that is a no-op safety net; on Windows it is
-what stops the junk link-text file being installed as a "skill".
-
-Rejected: recreating relative symlinks in the target. It works on macOS/Linux and breaks on Windows without
-developer mode, forces a directory-level state key that does not fit the per-file add/update/conflict model,
-and makes bash and PowerShell behave differently — the exact class of divergence the recent commits on this
-branch were spent fixing.
-
-Accepted cost: skill content is duplicated in the target under both `.agents/skills/<name>/` and
-`.claude/skills/<name>/`. They are independent state keys; the pack drives both. ~16 small markdown files.
-
-### Version-hash canonicalisation
-
-Canonical rule, applied on both sides: **a depth-1 entry under `.claude/skills/` is never a hashed file.**
-- bash `pack_tree_hash`: already correct via `-type f` (symlinks excluded). Leave `find` unprefixed — do
-  **not** add `-L` here, or the skill content would be double-counted (it is already counted under `.agents/`).
-- PowerShell `Get-PackVersion`: add a `Where-Object` exclusion for `^\.claude/skills/[^/]+$`.
-
-This removes the existing macOS↔Windows tree-hash divergence rather than deepening it.
-
-### `.agents/` tool gating
-
-`merge_agents_dir` is **ungated** by `SELECTED_TOOLS`, matching `copy_mcp_json` rather than
-`merge_claude_dir`/`merge_cursor_dir`. Rationale: `.agents/` is the tool-neutral AGENTS.md convention and
-maps to no member of the `claude cursor` tool universe; gating it on `claude` would make the shared
-source-of-truth dir disappear for cursor-only users. Recorded under the ambiguity rule.
+Vendor the `unslop` skill from `cursor/plugins` (`pstack/skills/unslop/SKILL.md`) into this pack,
+wired for both Claude Code and Cursor, installable by `install.sh` / `install.ps1`.
 
 ## Requirement traceability
 
-| # | Requirement | Blueprint item | Files |
-|---|---|---|---|
-| R1 | `merge_agents_dir` step keyed `.agents/<rel>`, full add/update/conflict/force/skip-deleted semantics | new fn mirroring `merge_cursor_dir` (install.sh:1295), reusing `apply_file_action` | install.sh |
-| R2 | Wired into `main()` merge phase + summary | `step "Merge .agents/ skills" merge_agents_dir` after `stage_filtered_pack` (install.sh:1541); counters are global so `print_summary` needs no change | install.sh |
-| R3 | Symlinked `.claude/skills/*` usable in target | `find -L` in `merge_claude_dir` (install.sh:1288) + depth-1 skip | install.sh |
-| R4 | Tarball/clone symlink survival verified | verified above; materialisation chosen so it does not matter | — |
-| R5 | Consistent, identical state hashing across bash/PS | materialise real files both sides; identical keys; `sha256_file` already follows links | install.sh, install.ps1 |
-| R6 | Mirror everything in install.ps1 | `Merge-AgentsDir`, `Merge-SkillLinks`, depth-1 skip in `Merge-ClaudeDir`, `Get-PackVersion` exclusion, main-flow wiring | install.ps1 |
-| R7 | bash tests: fresh-install `.agents/`, symlinked skill usable, update/conflict for `.agents/` keys | new `add_agents_fixture` helper + new `test_*` cases + footer entries | tests/install-update.test.sh |
-| R8 | Update PS verification matrix | new cases appended in existing style + header comment refresh | tests/verify-install-ps1.ps1 |
-| R9 | Keep existing style (POSIX-ish bash, log/step/STEP_STATUS) | explicit constraint in the implementation packet | all |
-| R10 | Run `bash tests/install-update.test.sh`, report actual results | baseline + post-change run | — |
+| # | Requirement | Blueprint item / files |
+|---|---|---|
+| R1 | Fetch upstream `unslop` content | `.agents/skills/unslop/SKILL.md` (verbatim copy of `https://raw.githubusercontent.com/cursor/plugins/main/pstack/skills/unslop/SKILL.md`). Upstream dir listing confirms `SKILL.md` is the **only** file in the skill. |
+| R2 | Tool-neutral skill packaging | `.agents/skills/unslop/agents/openai.yaml` (matches `grill-with-docs`/`grilling` shape) |
+| R3 | Claude Code integration | `.claude/skills/unslop` → git symlink (mode 120000) to `../../.agents/skills/unslop` |
+| R4 | Cursor integration | `scripts/sync-cursor.mjs`: `FRONTMATTER.unslop` + generation block; regenerated `.cursor/rules/unslop.mdc` and `.cursor/README.md` |
+| R5 | Installable via `install.sh` / `install.ps1` | Verified by inspection + `tests/install-update.test.sh`. Both installers discover skills **dynamically**; no enumeration to edit. |
+| R6 | Pack version bump | Investigated — see "Findings / decisions" D3 |
+| R7 | Docs | `README.md` lines 31, 33, 250–263, 267–273 (Ron) |
+| R8 | Provenance record | `skills-lock.json` entry — see D2 |
+
+## Findings
+
+- **Neither installer hardcodes skill names.** `install.sh` `compute_skill_link_names()` (lines 483–507)
+  walks `pack/.claude/skills/*` and applies `is_skill_link()`; `install.ps1` `Get-SkillLinkNames`
+  (lines 244–265) mirrors it. `merge_agents_dir` / `Merge-AgentsDir` blanket-copy `.agents/**`;
+  `merge_cursor_dir` blanket-copies `.cursor/**`. A correctly-shaped new skill installs with zero
+  installer edits.
+- **No test enumerates real skills.** `tests/install-update.test.sh` builds a synthetic `tdd` fixture.
+  No fixture or expected-list edit needed.
+- **`install.ps1` has no `.cursor/` merge and no tool selection** (documented at install.ps1:351–355).
+  Windows users installing via PowerShell do not receive `.cursor/rules/*.mdc` — pre-existing,
+  applies to every rule, not specific to `unslop`.
+
+## Decisions (ambiguity rule)
+
+- **D1 — `alwaysApply: false` on the Cursor rule.** Upstream's description says "Must always apply.",
+  which maps naturally onto Cursor's `alwaysApply: true`. Chose `false` for consistency with the
+  closest existing analogue, `using-superpowers.mdc`, which is also an always-type meta-skill and
+  ships `alwaysApply: false`. Every rule in `.cursor/rules/` is `false`; `true` would inject ~6.5KB
+  into every Cursor request. The "always" intent is carried in the rule `description` instead.
+  Reversible — flip one line in `scripts/sync-cursor.mjs` if the user prefers otherwise.
+- **D2 — add `unslop` to `skills-lock.json`.** The file's 8 existing entries are all
+  `mattpocock/skills` and it is written by an external `skills` CLI that no repo tooling reads.
+  The distinction that actually separates its members from the excluded first-party skills
+  (`copy-review`, `prd-generator`, …) is *vendored from upstream* vs *authored here*. `unslop` is
+  vendored, so it belongs. `source: "cursor/plugins"`, `skillPath: "pstack/skills/unslop/SKILL.md"`,
+  `computedHash` = sha256 of the vendored file bytes. Schema `"version": 1` is a **lockfile schema
+  version**, not a release version — left untouched.
+- **D3 — no hand-maintained pack version exists to bump.** `resolve_pack_version()`
+  (install.sh:531–546) sets the version consumed by other projects to the pack's **git HEAD SHA**,
+  falling back to `pack_tree_hash()` (a sha256 over the pack tree). It is written into the target
+  project's `.dev-team-pack.json` and compared on the next run. There is no `plugin.json`,
+  `marketplace.json`, or `package.json` in this repo. Update detection therefore fires
+  automatically once this change is committed — no semver to increment. Surfaced to the user
+  rather than inventing a version scheme (hard to reverse: other projects would start keying off it).
 
 ## Status
 
-- [x] Pattern analysis
-- [x] Architecture decision
-- [x] Traceability gate
-- [ ] Baseline test run
-- [x] Baseline test run — 107/0 and 7/0, green
-- [x] Phase 1 — install.sh (`54e0c1e`), architect-verified at install.sh:1279-1280, 1290, 1297-1312, 1561
-- [x] Phase 2 — install.ps1 (`d5e1478`), architect-verified at install.ps1:379-381, 394-409, 411-459
-- [x] Phase 3 — tests (`03bbf1c`) — `bash tests/install-update.test.sh` → 121 run, 0 failed
-- [x] Review round 1 (Hermione) — **changes-required**: 1 blocker, 7 should-fix, 5 nits
-- [x] Round 2 fixes (`9769693`) — 127 run, 0 failed
-- [x] Review round 2 (Hermione) — **approve-with-should-fixes**, zero blockers
-- [x] Round 3 fixes (`62a54c2`) — 131 run, 0 failed
-- [x] Docs (Ron) — README.md, uncommitted
+| Phase | Status |
+|---|---|
+| Recon (skill wiring, installers, tests, docs) | done |
+| Upstream fetch + traceability gate | done |
+| Baseline (build/tests/lint on clean tree) | done |
+| Phase 1 — vendor skill + Claude symlink + lock entry | done |
+| Phase 2 — Cursor sync generator + regenerate | done |
+| Phase 3 — installer/test verification | done |
+| Review (Hermione) | done — round 1 REQUEST-CHANGES, round 2 fixes applied and self-verified |
+| Docs (Ron) | done |
 
-## Review round 2 — findings and disposition
+## Docs result (Ron, R7)
 
-Reviewer independently reproduced 127/0 and both discrimination checks, and ran three of her own
-(including a bash tree-hash comparison across Unix-symlink vs Windows-link-text clones of identical
-content — identical hash, so R5 is bash-verified).
+`README.md` only. Four edits:
+- line 31 — appended `unslop` to the `.agents/` list, plus one sentence on what it does
+- line 33 — `eight` → `nine`, appended `unslop` to the symlink parenthetical
+- `## Layout` `.claude/` block (~259) — `eight` → `nine`, added `unslop`, alignment preserved
+- `## Layout` `.cursor/rules/` block (~274) — added four missing rows: `grill-with-docs.mdc`,
+  `using-superpowers.mdc`, `unslop.mdc`, `lean-ctx.mdc`. Three of those were **pre-existing
+  staleness** unrelated to this change (3c77e9d never updated this block). `lean-ctx.mdc` is
+  noted as the one rule not generated by `scripts/sync-cursor.mjs`.
 
-- **SF1** `Get-PackVersion` excluded depth-1 only while `Merge-ClaudeDir` excluded the whole subtree, under
-  identical `-Recurse` exposure — so on WinPS 5.1 with a real-symlink checkout the `.agents/skills/<name>`
-  tree was hashed twice and the PS tree hash diverged from bash's. Reopened the `4a001b0` oscillation class.
-  **Taken** (drop the trailing `$`).
-- **SF2** the predicate claimed *any* depth-1 symlink, but the sole owner can only materialise
-  `.agents/skills/<name>` targets — so a symlink pointing elsewhere was claimed, skipped by the merge walk,
-  and its content vanished. **Taken** (symlink branch now conditional on the target resolving).
-- **SF3** bash `tr -d '[:space:]'` stripped *internal* whitespace where PS only `.Trim()`s — a live
-  divergence in the one predicate required to be identical. **Taken** (ends-only trim helper).
-- **SF5** no test covered a genuine skill *directory* at depth 1, which is exactly the R3 failure mode
-  (a too-greedy subtree skip silently dropping the 8 real skill dirs). **Taken** (mixed-fixture test).
-- **SF4** a PowerShell test creating a *real* symlink, to cover the `string[] $Entry.Target` scalarisation
-  and the `-Recurse` double-processing path. **DEFERRED — see known gaps.**
-- **N1–N5** all taken.
+Decided against a `## The unslop skill` prose section: `jira-start`/`linear-start` have those
+because they are multi-step interactive flows with prompts and worktrees. `unslop` is a stateless
+style filter with no workflow, so a section would restate the inline sentence. Agreed.
 
-## Known gaps at hand-off
+Verified: `grep -n eight README.md` returns nothing; the ten `.cursor/rules/` rows all align at
+column 30.
 
-1. **The PowerShell changes have never been executed.** `pwsh` is not installed in this environment, so
-   `install.ps1` and `tests/verify-install-ps1.ps1` were verified by review and 1:1 mirroring of the tested
-   bash logic only. Four of the fixes in this run are PowerShell-only.
-2. **SF4 / Windows PowerShell 5.1 is a declared target but is untested.** The PS matrix invokes `pwsh`
-   (PS 7) only, and its fixture models only the plain-link-text clone. Neither the round-1 blocker's
-   `string[] $Entry.Target` path nor the 5.1 `-Recurse` reparse-point-following path is exercised on any
-   PowerShell version. This is larger than this change and wants a Windows CI job.
+## Baseline (recorded before any edit)
 
-## Final test results
+- `node --version` → v22.20.0. No `package.json`, so no npm build/test/lint exists.
+- `node scripts/sync-cursor.mjs` → 10 files, all UNCHANGED, `git status` unmoved. Committed
+  `.cursor/` output was in sync with the generator.
+- `bash tests/install-update.test.sh` → **131 run, 0 failed**. No pre-existing failures.
+- Only pre-existing working-tree change: ` M PROGRESS.md` (mine).
 
-- `bash tests/install-update.test.sh` → **131 run, 0 failed** (baseline 107 → 131)
-- `bash tests/decide.test.sh` → **7 run, 0 failed**
-- `bash -n install.sh` → exit 0
-- Four independent discrimination checks in round 3, each reproducing the expected failure signature.
+## Implementation result (Harry, phases 1–3)
 
-## Review round 1 — findings and disposition
+Created:
+- `.agents/skills/unslop/SKILL.md` — 6595 bytes, byte-verbatim `curl` of upstream, sha256
+  `181883e539caec8258ec9129e3ba5f133409144a2cbf2aa361158ab94cfc3441`. Items 1–31 verified present.
+- `.agents/skills/unslop/agents/openai.yaml` — 131 bytes, `allow_implicit_invocation: true`.
+- `.claude/skills/unslop` — real symlink, git mode 120000 → `../../.agents/skills/unslop`, no
+  trailing newline. Matches the `grill-with-docs` shape from 3c77e9d exactly.
+- `.cursor/rules/unslop.mdc` — 6794 bytes, generated.
 
-- **B1 (blocker)** — `Merge-SkillLinks` on Windows PowerShell 5.1: `FileSystemInfo.Target` is `string[]`,
-  not a string (scalar only since PS 6). With an array operand `-notmatch` filters instead of returning a
-  boolean *and* leaves `$Matches` unpopulated, so `$name` was `$null`, `$resolvedSrc` collapsed to the
-  `.agents\skills` root, and the walk copied every skill into every skill dir — ~112 bogus files and state
-  keys, silently, on the exact platform the function was written for. Fixed in `9769693` via `@(...)[0]`
-  scalarisation and `[regex]::Match`.
-- **S1** double-processing on WinPS 5.1 (`Get-ChildItem -Recurse` follows reparse points there; that is why
-  PS 6 added opt-in `-FollowSymlink`), which double-counted conflicts. Fixed by the sole-owner design.
-- **S2/S5 (architect adjudication)** — these two conflicted. S2: the depth-1 skip was too broad, so a
-  genuine `.claude/skills/README.md` would never install and the PS tree hash diverged from bash. S5: a
-  Windows `core.symlinks=false` clone presents the link as a plain file that *must* be skipped. Hermione's
-  proposed `[ -L ] && continue` satisfies S2 and breaks S5. **Ruling:** one shared predicate — depth-1 under
-  `.claude/skills/` AND (symlink OR <256-byte file whose trimmed content matches
-  `^(\.\./)*\.agents/skills/[^/]+/?$`) — applied in bash `merge_claude_dir`, bash `pack_tree_hash`,
-  PS `Merge-ClaudeDir`, PS `Get-PackVersion`, factored into one helper per language.
-- **New gap found via that ruling (F4):** install.sh runs under Git Bash on Windows, where `find -L` finds
-  nothing, so none of the 7 skills reached `.claude/skills/` at all. Added bash `merge_skill_links`
-  mirroring the PS function, wired at `install.sh:1393`, with the sole-owner design on both platforms.
-- **S3/S4** vacuous assertions (the delete test passed pre-fix for the wrong reason; `case22`'s
-  `-match 'conflict'` matched the unconditional summary line). Both anchored.
-- **S6** README does not mention `.agents/` — routed to Ron after approval, not fixed in code.
-- **S7** commits 1 and 2 contain a `merge_claude_md` keep-local branch and the `-Reconfigure` wiring that
-  are not mentioned in their messages. **Adjudicated:** these are the user's own pre-existing uncommitted
-  edits that were in the working tree at session start, not implementation drift. Left in place and
-  disclosed rather than rewritten, since history surgery on the user's default branch is out of scope.
-- **N1–N5** nits; N1, N2, N3 fixed opportunistically, N4/N5 recorded only.
-- [ ] Git branch-state reconciliation (see below)
+Modified:
+- `scripts/sync-cursor.mjs` — `FRONTMATTER.unslop`, generation block 7, `cursorReadme` table row.
+- `.cursor/README.md` — regenerated.
+- `skills-lock.json` — `"unslop"` entry appended (alphabetically last), schema `"version": 1` untouched.
 
-## Post-change test results
+Verification:
+- `node scripts/sync-cursor.mjs` twice → second run all 11 UNCHANGED (idempotent).
+- `bash tests/install-update.test.sh` → 131 run, 0 failed. **Zero delta vs baseline.**
+- End-to-end install into a throwaway target with `--tools claude,cursor` materialized all four
+  paths as real files (`.claude/skills/unslop/SKILL.md` is a real file, not a symlink — confirming
+  `merge_skill_links` works) and tracked all four in the target's `.dev-team-pack.json`.
+- Predicate confirmed for both the real-symlink path and the Windows `core.symlinks=false`
+  link-text-file path, in bash and PowerShell.
+- `install.sh` and `install.ps1` required **zero edits** — confirmed empirically, not assumed.
 
-- `bash tests/install-update.test.sh` → **121 run, 0 failed** (baseline 107 → +14 assertions across 6 new tests)
-- `bash tests/decide.test.sh` → **7 run, 0 failed**
-- `bash -n install.sh` → exit 0
-- Discrimination check: reverting only the phase-1 hunks in a scratch copy → 121 run, **12 failed**, and the
-  failures were exactly the 6 new `.agents/` tests. The new tests are not vacuous and cause no collateral damage.
+R6 confirmed: no hand-maintained semver exists anywhere. Every `version` hit is either the
+`skills-lock.json` schema version or a value computed from the git SHA.
 
-## Open issue — branch state (verified, nothing lost, needs a user decision)
+## Review rounds
 
-Reconstructed from reflog:
+### Round 1 (Hermione) — REQUEST-CHANGES: 0 blockers, 2 should-fixes, 3 nits
 
-- PR #5 merged `feat/installer-update-detection` into `main` as `ab96c9d` on **2026-08-10**, i.e. *before*
-  this session. That branch's work is fully preserved in `origin/main`, and the tip `dc675f0` still exists
-  on the remote as `origin/feat/installer-update-detection`.
-- At **12:26:04** today a fetch fast-forwarded local `main` to `ab96c9d`; at **12:26:05** a checkout moved
-  HEAD from `feat/installer-update-detection` to `main`, carrying the 5 modified files across. The local
-  branch was then deleted. Neither was done by any agent in this run's implementation phase — both precede
-  the first phase commit at 12:42.
-- The three phase commits `54e0c1e`, `d5e1478`, `03bbf1c` are on **local `main` only, unpushed**
-  (`origin/main...HEAD` = 0 behind, 3 ahead). Nothing is stashed.
+Coverage: R1, R3, R4, R5, R6 covered. R2 covered. R8 **partial**.
 
-**Consequence to surface, not decide:** the phase commits sit directly on `main` with no feature branch, and
-they bundle in the pre-existing uncommitted edits to `install.sh` / `install.ps1` / the two test files that
-were already in the working tree at session start. `README.md` remains uncommitted. Moving these commits onto
-a branch is a history operation on the user's default branch — out of scope for autonomous action.
+**SF1 — `skills-lock.json` `computedHash` does not use the convention the other 8 entries use.
+ACCEPTED. This overturns decision D2.**
 
-## Decisions under the ambiguity rule
+Hermione computed sha256 of the local `.agents/skills/<name>/SKILL.md` for all nine entries.
+`unslop` is the **only** one whose recorded `computedHash` equals that value; all eight
+`mattpocock` entries mismatch. She then ruled out "it is the upstream hash at vendor time":
+current upstream `to-tickets/SKILL.md` hashes to `5c9fba69…`, matching neither the lock's
+`0349eee2…` nor the local `5ecdf1d4…`. So the `skills` CLI hashes some other scope and the value
+is **not reproducible from this repo**.
 
-1. `.agents/` merge is ungated by tool selection (rationale above).
-2. Skill content is duplicated (`.agents/` + `.claude/skills/`) rather than symlinked, for Windows parity.
-3. `pack_tree_hash` keeps `-type f` (no `-L`); PowerShell gains a matching exclusion. Corrects an existing
-   divergence, in scope because both installers now handle these entries.
+I was wrong in D2. My reasoning ("vendored vs authored" is the line that separates members) was
+sound about *membership* but I hand-wrote a value under a key whose semantics I could not
+reproduce. That is worse than omission: a future `skills` CLI run recomputes with its own
+algorithm, gets a different value, and reports false drift. The entry shape compounds it —
+`source: "cursor/plugins"` with `skillPath: "pstack/skills/unslop/SKILL.md"` is unlike all eight
+siblings (one repo, `skills/<category>/<name>/SKILL.md`), so the CLI may not resolve it at all.
 
-## Baseline (clean branch, before any edit)
+**Resolution (D2-revised): remove the `unslop` entry from `skills-lock.json` entirely**, restoring
+the file to its committed state. That file is an artifact of an external CLI that no repo tooling
+reads. Provenance belongs where a human reads it, so record the upstream source in `README.md`
+instead. Chose full removal over "keep entry, drop computedHash" because a hash-less entry is
+still a schema deviation and still exposes the unresolvable `source`/`skillPath` shape.
 
-- `bash tests/install-update.test.sh` → **107 run, 0 failed**, exit 0
-- `bash tests/decide.test.sh` → **7 run, 0 failed**, exit 0
-- `bash -n install.sh` → exit 0
-- No pre-existing failures. Any FAIL after this point is a new regression.
-- Known harmless stderr noise: a `grep: .../target/.claude/settings.json: No such file or directory`
-  line during `subset selection still filters .claude/settings.json` (that assertion still passes).
+**SF2 — three integrations declare three different auto-apply answers, rationale nowhere durable.
+ACCEPTED.** Claude Code description says "Must always apply." (verbatim upstream, correct),
+OpenAI says `allow_implicit_invocation: true`, Cursor says `alwaysApply: false`. Hermione
+endorses `true` for OpenAI on its merits and does not dispute D1's value. Her point is that D1's
+rationale lives only in this scratchpad, which is not part of the change and evaporates. Fix: a
+comment above `FRONTMATTER.unslop` in `scripts/sync-cursor.mjs`.
+
+**Nits, not actioned:** N1 (no test for `sync-cursor.mjs`; she verified the staleness property by
+hand and judged this change does not widen the gap — a CI line `node scripts/sync-cursor.mjs &&
+git diff --exit-code .cursor/` would be the cheap permanent guard). N2 (`trimStart()` in
+`stripClaudeFrontmatter` is harmless here). N3 (a target that already installed the upstream
+`pstack` plugin would see a conflict on `.claude/skills/unslop/SKILL.md` — correct behavior).
+
+**Confirmed by Hermione independently:** R6 (no hand-maintained semver anywhere), and that
+`pack_tree_hash()` **does** move for this change — the depth-1 exclusion at install.sh:518-524
+skips only `.claude/skills/unslop` itself, while `.agents/skills/unslop/**` and
+`.cursor/rules/unslop.mdc` are ordinary files that `find -type f` counts. Tests: 131/0 on
+`install-update.test.sh`, 7/0 on `decide.test.sh`. No delta.
+
+### Round 2 — both should-fixes applied
+
+- SF1: `unslop` entry removed from `skills-lock.json`. `git diff skills-lock.json` is **empty**;
+  file is byte-identical to HEAD. Verified by me directly, not just reported.
+- SF2: four-line rationale comment added above `FRONTMATTER.unslop` in `scripts/sync-cursor.mjs`.
+  Comment-only; no value changed. Verified by me directly.
+- Regression: `sync-cursor.mjs` run twice → 11/11 UNCHANGED both times (the comment lives in
+  generator source, so it must not move generated output — confirmed). Tests 131/0 and 7/0.
+
+**Adjudication: no round 3.** I did not send round 2 back to Hermione. Both fixes are objectively
+verifiable without judgment — a revert whose correctness is proven by an empty `git diff`, and a
+comment insertion that provably does not alter generated output. I read both files myself. Sending
+a reviewer to re-read a comment would spend a round on nothing.
 
 ## Deviations from blueprint
 
-None yet.
+1. **D2 reversed after review.** Blueprint R8 said add `unslop` to `skills-lock.json`. Round 1
+   evidence showed the `computedHash` semantics are unreproducible, so the entry was removed and
+   provenance moved to `README.md` instead. Net effect on the tree: `skills-lock.json` unchanged.
+2. **Ron edited one file outside his packet.** His packet said `README.md` only; he also updated
+   his own memory at `.claude/agent-memory/docs-maintainer/project_dev_team_pack.md`. That path is
+   agent memory, not project source, and `.claude/agent-memory/` is gitignored, so it does not
+   appear in the change. Allowed to stand, flagged to the user.
+3. **Ron fixed pre-existing staleness beyond the ask.** The `.cursor/rules/` listing in `## Layout`
+   was missing `grill-with-docs.mdc`, `using-superpowers.mdc`, and `lean-ctx.mdc` before this task
+   (since 3c77e9d). He added all of them alongside `unslop.mdc`. Kept — the block would otherwise
+   have been wrong in a way this change draws attention to.
+4. **Harry's e2e install used an out-of-repo git snapshot.** `install.sh`'s `fetch_pack` clones
+   committed refs only, and the packet forbade committing, so a literal install from this repo
+   would not have seen the new files. He snapshotted the working tree into a scratch git repo
+   outside this directory and installed from that. The real repo was never cloned or modified.
+   Sound call; it is the only way to exercise uncommitted content end to end.
+
+## Known limitations (pre-existing, not introduced here)
+
+- `install.ps1` has no `.cursor/` merge step (install.ps1:830-832). Windows PowerShell installs
+  receive **no** `.mdc` rules at all, so `unslop.mdc` is absent there exactly as all nine others
+  are. Told the user.
+- No test covers `scripts/sync-cursor.mjs`, and no test enumerates real skills. Hermione verified
+  the staleness property by hand and judged this change does not widen the gap. Cheapest permanent
+  guard would be a CI line: `node scripts/sync-cursor.mjs && git diff --exit-code .cursor/`.
+- A target project that already installed the upstream `cursor/plugins` pstack plugin directly
+  would see a conflict on `.claude/skills/unslop/SKILL.md` at the next pack update. Correct
+  behavior, but plausible in the wild given `unslop` is a popular upstream skill.
+
+## Final state — nothing committed, nothing staged
+
+```
+ M .cursor/README.md
+ M PROGRESS.md
+ M README.md
+ M scripts/sync-cursor.mjs
+?? .agents/skills/unslop/
+?? .claude/skills/unslop
+?? .cursor/rules/unslop.mdc
+```

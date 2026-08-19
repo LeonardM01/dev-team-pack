@@ -28,9 +28,9 @@ iwr -useb https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/instal
 1. Clones dev-team-pack into a temp directory (shallow `git clone`; falls back to the GitHub codeload tarball if `git` is not available).
 2. **Prompts you to select AI tool targets** (`claude`, `cursor`, or both) and **which MCP servers** to enable (any subset of `context7`, `figma`, `playwright`, `atlassian`, `linear`, `lean-ctx`, `XcodeBuildMCP`). Only the selected targets and servers are installed. Use env vars (see Configuration) to skip prompts entirely.
 3. Copies `.claude/` (agents, skills, settings) into the project for the selected tool targets. `agent-memory/` is always preserved. Files already in the project that this pack did not write are left alone; see [Updating](#updating) for what happens to pack files on a re-run.
-4. Merges `.agents/` (the tool-neutral skills directory — `code-review`, `domain-modeling`, `grill-with-docs`, `grilling`, `research`, `tdd`, `to-spec`, `to-tickets`) into the project. Unlike `.claude/` and `.cursor/`, this step is **not gated by tool selection** — it installs regardless of which tools you chose, because `.agents/` maps to no member of the `claude`/`cursor` tool universe and gating it on `claude` would hide it from cursor-only users. There is currently no opt-out.
+4. Merges `.agents/` (the tool-neutral skills directory — `code-review`, `domain-modeling`, `grill-with-docs`, `grilling`, `research`, `tdd`, `to-spec`, `to-tickets`, `unslop`) into the project. Unlike `.claude/` and `.cursor/`, this step is **not gated by tool selection** — it installs regardless of which tools you chose, because `.agents/` maps to no member of the `claude`/`cursor` tool universe and gating it on `claude` would hide it from cursor-only users. There is currently no opt-out. `unslop` is a style filter, not a workflow. It strips AI writing tells (puffery, stock AI vocabulary, em dash overuse, title-case headings) from prose such as docs, commit messages, and user-facing copy, then rewrites for a human voice. It is vendored from [`cursor/plugins`](https://github.com/cursor/plugins/tree/main/pstack/skills/unslop). Unlike the other tool-neutral skills, it is not tracked in `skills-lock.json` — that file is maintained by the external `skills` CLI and only covers skills fetched from `mattpocock/skills`.
 
-   In this pack, eight of the `.claude/skills/` entries (`code-review`, `domain-modeling`, `grill-with-docs`, `grilling`, `research`, `tdd`, `to-spec`, `to-tickets`) are symlinks into `.agents/skills/`. The installer does not recreate symlinks in your project — it materializes real files at both `.agents/skills/<name>/` and `.claude/skills/<name>/`, tracked as independent files in `.dev-team-pack.json`. **Editing one copy does not update the other**, and each can independently show up as a conflict on a later update. Symlinks aren't used because they break on Windows without Developer Mode, don't fit the per-file add/update/conflict state model, and this way `install.sh` and `install.ps1` stay behaviourally identical — important since `.dev-team-pack.json` is meant to be committed and shared across a team on mixed platforms.
+   In this pack, nine of the `.claude/skills/` entries (`code-review`, `domain-modeling`, `grill-with-docs`, `grilling`, `research`, `tdd`, `to-spec`, `to-tickets`, `unslop`) are symlinks into `.agents/skills/`. The installer does not recreate symlinks in your project — it materializes real files at both `.agents/skills/<name>/` and `.claude/skills/<name>/`, tracked as independent files in `.dev-team-pack.json`. **Editing one copy does not update the other**, and each can independently show up as a conflict on a later update. Symlinks aren't used because they break on Windows without Developer Mode, don't fit the per-file add/update/conflict state model, and this way `install.sh` and `install.ps1` stay behaviourally identical — important since `.dev-team-pack.json` is meant to be committed and shared across a team on mixed platforms.
 5. Copies `.mcp.json` to the project root containing only the selected MCP servers. On a re-run it is updated, kept or reported as a conflict like any other pack file — see [Updating](#updating).
 6. Appends the pack's `CLAUDE.md` to the project's `CLAUDE.md`, wrapped in `<!-- dev-team-pack:begin -->` / `<!-- dev-team-pack:end -->` markers. On a re-run the block is updated in place if you haven't edited it, or reported as a conflict if you have — see [Updating](#updating).
 7. Runs `scripts/setup-env.sh` to install/verify the global tool stack: `lean-ctx`, `claude-mem`, and the Superpowers Claude Code plugin.
@@ -256,9 +256,9 @@ git -C /path/to/repo branch -D <TICKET>
   agent-memory/<agent>/           persistent per-agent memory (versioned)
   skills/jira-start/SKILL.md      the Jira ticket kickoff playbook
   skills/linear-start/SKILL.md    the Linear issue kickoff playbook
-  skills/<name>/                  eight of these (code-review, domain-modeling, grill-with-docs,
-                                   grilling, research, tdd, to-spec, to-tickets) are symlinks
-                                   to ../../.agents/skills/<name>
+  skills/<name>/                  nine of these (code-review, domain-modeling, grill-with-docs,
+                                   grilling, research, tdd, to-spec, to-tickets, unslop) are
+                                   symlinks to ../../.agents/skills/<name>
                                    in this repo; the installer materializes them as independent
                                    real files in target projects — see "What it does" step 4
 .cursor/                          generated — do not edit by hand (run scripts/sync-cursor.mjs)
@@ -271,6 +271,10 @@ git -C /path/to/repo branch -D <TICKET>
     ron-docs.mdc                  Ron persona rule
     jira-start.mdc                jira-start flow adapted for Cursor
     linear-start.mdc              linear-start flow adapted for Cursor
+    grill-with-docs.mdc           grill-with-docs flow adapted for Cursor
+    using-superpowers.mdc         reminder to check for applicable skills before responding
+    unslop.mdc                    unslop skill adapted for Cursor
+    lean-ctx.mdc                  hand-maintained, not generated by scripts/sync-cursor.mjs
 scripts/
   sync-cursor.mjs                 regenerates .cursor/ from .claude/ (idempotent)
 ```
