@@ -27,7 +27,7 @@ Explain folders and patterns.
 npm run dev
 npm run build
 
-# lean-ctx — Context Engineering Layer
+# lean-ctx - Context Engineering Layer
 
 PREFER lean-ctx MCP tools over native equivalents for token savings:
 
@@ -40,17 +40,17 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 
 ## ctx_read Modes
 
-- `full` — cached read (use for files you will edit)
-- `map` — deps + API signatures (use for context-only files)
-- `signatures` — API surface only
-- `diff` — changed lines only (after edits)
-- `aggressive` — syntax stripped
-- `entropy` — Shannon + Jaccard filtering
-- `lines:N-M` — specific range
+- `full` - cached read (use for files you will edit)
+- `map` - deps + API signatures (use for context-only files)
+- `signatures` - API surface only
+- `diff` - changed lines only (after edits)
+- `aggressive` - syntax stripped
+- `entropy` - Shannon + Jaccard filtering
+- `lines:N-M` - specific range
 
 ## File Editing
 
 Use native Edit/StrReplace when available. If Edit requires Read and Read is unavailable,
-use `ctx_edit(path, old_string, new_string)` — it reads, replaces, and writes in one MCP call.
+use `ctx_edit(path, old_string, new_string)` - it reads, replaces, and writes in one MCP call.
 NEVER loop trying to make Edit work. If it fails, switch to ctx_edit immediately.
-Write, Delete have no lean-ctx equivalent — use them normally.
+Write, Delete have no lean-ctx equivalent - use them normally.

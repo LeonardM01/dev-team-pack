@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — dev-team-pack installer
+# install.sh - dev-team-pack installer
 # Usage: bash install.sh [TARGET_DIR]    (run with --help for full options)
 set -euo pipefail
 
@@ -261,7 +261,7 @@ print_summary() {
 
     if [ "$MODE" = "install" ] && [ "$N_KEPT" -gt 0 ]; then
       printf '  %sNote: %s existing files were recorded as the baseline. Future updates\n' "$C_DIM" "$N_KEPT"
-      printf '  may overwrite them if upstream changes the same file — review them now\n'
+      printf '  may overwrite them if upstream changes the same file - review them now\n'
       printf '  if any hold customizations you want to keep.%s\n\n' "$C_RESET"
     fi
 
@@ -298,9 +298,9 @@ make_workdir() {
   cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; }
   trap cleanup EXIT INT TERM HUP
   WORK="$(mktemp -d)"
-  # conflicts.txt   — conflicts this run observed and left unresolved
-  # conflicts_prev  — conflicts the previous run recorded, seeded by read_state
-  # conflicts_res   — keys this run classified as anything but an open conflict
+  # conflicts.txt - conflicts this run observed and left unresolved
+  # conflicts_prev - conflicts the previous run recorded, seeded by read_state
+  # conflicts_res - keys this run classified as anything but an open conflict
   # write_state persists fresh + (prev - resolved), so a conflict in a step that
   # this run skipped survives, while one that genuinely resolved is dropped.
   : > "$WORK/conflicts.txt"
@@ -373,7 +373,7 @@ detect_jq_runtime() {
     log "MCP filter: python3"
   else
     MCP_FILTER_MODE=none
-    log "MCP filter: none (jq and python3 unavailable — MCP JSON will be unfiltered)"
+    log "MCP filter: none (jq and python3 unavailable - MCP JSON will be unfiltered)"
   fi
 }
 
@@ -417,11 +417,11 @@ sha256_file() {
 #
 # An entry is a "skill link" iff it is a symlink, OR it is a regular file
 # smaller than 256 bytes whose trimmed content matches
-# ^(\.\./)*\.agents/skills/[^/]+/?$ — the git-materialized link-text file a
+# ^(\.\./)*\.agents/skills/[^/]+/?$ - the git-materialized link-text file a
 # Windows clone with core.symlinks=false produces in place of the real
 # symlink.
 
-# skill_link_name_from_content CONTENT — prints the resolved <name> on
+# skill_link_name_from_content CONTENT - prints the resolved <name> on
 # stdout and returns 0 if CONTENT (already trimmed of leading/trailing
 # whitespace) matches the skill-link pattern above; returns 1 otherwise.
 skill_link_name_from_content() {
@@ -445,7 +445,7 @@ skill_link_name_from_content() {
   esac
 }
 
-# trim_ends CONTENT — echoes CONTENT with leading/trailing whitespace
+# trim_ends CONTENT - echoes CONTENT with leading/trailing whitespace
 # stripped, preserving any internal whitespace (e.g. a skill name with a
 # space in it). Shared by is_skill_link and merge_skill_links so the two
 # stay in step; do not swap either back to `tr -d '[:space:]'`, which also
@@ -454,12 +454,12 @@ trim_ends() {
   sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
 }
 
-# is_skill_link PATH — true if PATH (absolute, a direct child of a
+# is_skill_link PATH - true if PATH (absolute, a direct child of a
 # .claude/skills/ directory) satisfies the skill-link predicate above. A
 # symlink only counts if its target actually resolves to a
 # .agents/skills/<name> link (skill_link_name_from_content); the sole owner
 # (merge_skill_links) can only materialise that shape, so an unrecognised
-# symlink target must NOT be claimed here — leaving it unclaimed lets
+# symlink target must NOT be claimed here - leaving it unclaimed lets
 # merge_claude_dir's ordinary `find -L` merge walk install it instead of the
 # content silently vanishing.
 is_skill_link() {
@@ -479,7 +479,7 @@ is_skill_link() {
   skill_link_name_from_content "$content" >/dev/null
 }
 
-# compute_skill_link_names — populates $WORK/skill_link_names.txt with the
+# compute_skill_link_names - populates $WORK/skill_link_names.txt with the
 # .claude/skills/<name> entries (one per line) that satisfy the predicate.
 # Runs once, right after fetch_pack; merge_claude_dir, merge_skill_links, and
 # pack_tree_hash all read the same file so the three call sites can never
@@ -540,7 +540,7 @@ resolve_pack_version() {
   PACK_VERSION="$(pack_tree_hash || true)"
   PACK_VERSION_SOURCE=tree
   if [ -z "$PACK_VERSION" ]; then
-    log "hashing unavailable — pack version cannot be computed"
+    log "hashing unavailable - pack version cannot be computed"
   fi
   log "pack version $PACK_VERSION (tree)"
 }
@@ -550,7 +550,7 @@ state_path() { printf '%s/.dev-team-pack.json' "$TARGET"; }
 detect_state_support() {
   if [ "$HASH_MODE" = "none" ] || ! command -v python3 >/dev/null 2>&1; then
     STATE_ENABLED=0
-    log "update detection unavailable (needs a sha256 tool and python3) — existing files always win"
+    log "update detection unavailable (needs a sha256 tool and python3) - existing files always win"
   else
     STATE_ENABLED=1
   fi
@@ -559,7 +559,7 @@ detect_state_support() {
 # The state file may have been written by install.ps1 on Windows PowerShell 5.1,
 # which emits a UTF-8 BOM and CRLF line endings. encoding="utf-8-sig" strips the
 # BOM; CRLF is insignificant whitespace to the JSON parser. Both readers below
-# use the SAME parser that install.sh actually reads the file with — validate_json
+# use the SAME parser that install.sh actually reads the file with - validate_json
 # is deliberately NOT used here, because it prefers jq when available and jq
 # accepts a BOM that python3 rejects, which turned a friendly die into a raw
 # traceback under set -e.
@@ -651,7 +651,7 @@ read_state() {
   # Seed this run's state with everything the previous run tracked. Steps that
   # return early (tool not selected, path absent from the pack, settings.local
   # preserved) never call record_state_entry, and write_state serializes only
-  # what was recorded — so without this seed a skipped step would permanently
+  # what was recorded - so without this seed a skipped step would permanently
   # untrack its files, and an untracked pack file can never re-enter tracking
   # (keep-untracked does not record in MODE=update). write_state is
   # last-write-wins per key, so any step that does run overwrites its seed.
@@ -734,7 +734,7 @@ record_state_entry() {
 }
 
 # Called for every key a step classified as anything other than an open
-# conflict — including a forced overwrite. Without this a conflict carried
+# conflict - including a forced overwrite. Without this a conflict carried
 # forward by read_state would stick forever once it had been resolved.
 resolve_conflict_entry() {
   [ -n "${1:-}" ] || return 0
@@ -782,7 +782,7 @@ def read_keys(path):
 
 
 # Fresh conflicts always win. A conflict the previous run recorded survives only
-# if no step this run reclassified it (skipped step) — if one did, it resolved.
+# if no step this run reclassified it (skipped step) - if one did, it resolved.
 resolved = set(read_keys(resf))
 conflicts = []
 for c in read_keys(cf) + [p for p in read_keys(prevf) if p not in resolved]:
@@ -1128,7 +1128,7 @@ PY
 }
 
 # For pack JSON that this script itself just wrote with jq or python3. NOT for
-# the state file — see state_meta_json for why that path must use python3.
+# the state file - see state_meta_json for why that path must use python3.
 validate_json() {
   local f="$1"
   if [ "$MCP_FILTER_MODE" = "jq" ]; then
@@ -1161,7 +1161,7 @@ PY
   fi
 }
 
-# True when every entry already in $1's "$2" list is selected — filtering would
+# True when every entry already in $1's "$2" list is selected - filtering would
 # remove nothing, so re-serializing the file would only reformat it.
 #
 # That reformatting is what made the two installers oscillate: install.sh
@@ -1190,7 +1190,7 @@ stage_filtered_pack() {
   local servers="${SELECTED_MCPS:-}"
 
   if [ -f "$mcp_src" ] && filter_is_noop "$mcp_src" mcpServers "$servers"; then
-    log "staged .mcp.json (nothing filtered out — pack bytes preserved)"
+    log "staged .mcp.json (nothing filtered out - pack bytes preserved)"
   elif [ -f "$mcp_src" ]; then
     local mcp_tmp="$WORK/mcp_filtered.json"
 
@@ -1207,11 +1207,11 @@ json.dump(data, open('$mcp_tmp', 'w'), indent=2)
       else
         cp "$mcp_src" "$mcp_tmp"
         STEP_STATUS=warn
-        log "Cannot filter MCP JSON (no jq/python3) — full list will be installed"
+        log "Cannot filter MCP JSON (no jq/python3) - full list will be installed"
       fi
     elif ! filter_mcp_json "$mcp_src" "$mcp_tmp" "$servers"; then
       STEP_STATUS=warn
-      log "Cannot filter MCP JSON (no jq/python3) — full list will be installed"
+      log "Cannot filter MCP JSON (no jq/python3) - full list will be installed"
     fi
 
     if [ -f "$mcp_tmp" ]; then
@@ -1224,7 +1224,7 @@ json.dump(data, open('$mcp_tmp', 'w'), indent=2)
   fi
 
   if [ -f "$cursor_mcp_src" ] && filter_is_noop "$cursor_mcp_src" mcpServers "$servers"; then
-    log "staged .cursor/mcp.json (nothing filtered out — pack bytes preserved)"
+    log "staged .cursor/mcp.json (nothing filtered out - pack bytes preserved)"
   elif [ -f "$cursor_mcp_src" ]; then
     local cursor_tmp="$WORK/cursor_mcp_filtered.json"
 
@@ -1255,7 +1255,7 @@ json.dump(data, open('$cursor_tmp', 'w'), indent=2)
   fi
 
   if [ -f "$settings_src" ] && filter_is_noop "$settings_src" enabledMcpjsonServers "$servers"; then
-    log "staged .claude/settings.json (nothing filtered out — pack bytes preserved)"
+    log "staged .claude/settings.json (nothing filtered out - pack bytes preserved)"
   elif [ -f "$settings_src" ]; then
     local settings_tmp="$WORK/settings_filtered.json"
 
@@ -1389,7 +1389,7 @@ merge_claude_dir() {
       skills/*)
         # merge_skill_links is the sole owner of any entry under a
         # skill-link name (see is_skill_link_name / compute_skill_link_names
-        # above), at any depth — not just the depth-1 path — so a real
+        # above), at any depth - not just the depth-1 path - so a real
         # symlink clone is never double-processed. Everything else at this
         # depth, e.g. a genuine skills/README.md, installs normally like any
         # other file in .claude/.
@@ -1676,7 +1676,7 @@ run_analysis() {
   [ -f "$prompt_file" ] || { STEP_STATUS=skip; log "no analyze-prompt.txt in pack"; return 0; }
 
   if ! command -v claude >/dev/null 2>&1; then
-    log "Claude CLI not found — install with: npm i -g @anthropic-ai/claude-code"
+    log "Claude CLI not found - install with: npm i -g @anthropic-ai/claude-code"
     STEP_STATUS=skip
     return 0
   fi

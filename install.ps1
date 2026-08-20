@@ -181,7 +181,7 @@ $script:SkillLinkContentPattern = '^(?:\.\./)*\.agents/skills/[^/]+/?$'
 # literal segment, so arbitrary content does not match.
 $script:SkillLinkNamePattern = '(?:^|/)\.agents/skills/(?<name>[^/]+)/?$'
 
-# Get-SkillLinkText — returns the raw link text for a .claude/skills/<x>
+# Get-SkillLinkText - returns the raw link text for a .claude/skills/<x>
 # entry: the symlink target, or the trimmed content of a small text file (a
 # Windows clone's git-materialized link-text file placeholder).
 function Get-SkillLinkText {
@@ -191,7 +191,7 @@ function Get-SkillLinkText {
     # PS6). Chain of failure if this isn't scalarised first: an array left
     # operand makes -notmatch act as a FILTER (an empty array is falsy)
     # rather than return a boolean, so a guard built on it silently never
-    # fires — and an array operand also never populates $Matches, so
+    # fires - and an array operand also never populates $Matches, so
     # $Matches['name'] silently returns whatever a PRIOR -match left behind.
     # That previously fed a stale name into $resolvedSrc and copied every
     # skill into every entry. Always take the first element explicitly.
@@ -206,13 +206,13 @@ function Get-SkillLinkText {
   }
 }
 
-# Test-SkillLinkEntry — true if Entry (a direct child of a .claude/skills/
+# Test-SkillLinkEntry - true if Entry (a direct child of a .claude/skills/
 # directory) is a symlink whose target actually resolves to a
 # .agents/skills/<name> link, OR is a regular file smaller than 256 bytes
 # whose trimmed content matches $script:SkillLinkContentPattern. A symlink
 # only counts if it resolves: the sole owner (Merge-SkillLinks) can only
 # materialise that shape, so an unrecognised symlink target must NOT be
-# claimed here — leaving it unclaimed lets Merge-ClaudeDir's ordinary
+# claimed here - leaving it unclaimed lets Merge-ClaudeDir's ordinary
 # -Recurse merge walk install it instead of the content silently vanishing.
 function Test-SkillLinkEntry {
   param($Entry)
@@ -227,7 +227,7 @@ function Test-SkillLinkEntry {
   return $norm -match $script:SkillLinkContentPattern
 }
 
-# Resolve-SkillLinkName — extracts the .agents/skills/<name> segment from
+# Resolve-SkillLinkName - extracts the .agents/skills/<name> segment from
 # LinkText using the lenient trailing-match pattern (see
 # $script:SkillLinkNamePattern above). Returns $null if it doesn't match.
 function Resolve-SkillLinkName {
@@ -241,7 +241,7 @@ function Resolve-SkillLinkName {
   return $name
 }
 
-# Get-SkillLinkNames — the .claude/skills/<name> entries (immediate
+# Get-SkillLinkNames - the .claude/skills/<name> entries (immediate
 # children) that satisfy the skill-link predicate. Computed once in the main
 # script body right after Fetch-Pack and stored in $script:SkillLinkNames;
 # Get-PackVersion, Merge-ClaudeDir, and Merge-SkillLinks all read that same
@@ -263,7 +263,7 @@ function Get-SkillLinkNames {
   return ,$names
 }
 
-# Test-SkillLinkRelPath — true if RelPath (forward-slash, pack-relative,
+# Test-SkillLinkRelPath - true if RelPath (forward-slash, pack-relative,
 # e.g. ".claude/skills/tdd") is a depth-1 .claude/skills/<name> entry whose
 # <name> is in $script:SkillLinkNames.
 function Test-SkillLinkRelPath {
@@ -295,7 +295,7 @@ function Get-PackVersion {
   }
   # Mirror install.sh's pack_tree_hash exactly: `find .`-style relative paths
   # (./-prefixed, forward slashes), excluding only the top-level .git/ tree
-  # (not any nested .git/), sorted byte-ordinally (LC_ALL=C sort — not
+  # (not any nested .git/), sorted byte-ordinally (LC_ALL=C sort - not
   # PowerShell's culture-aware default), each entry "path:hash\n" with no
   # extra separator between entries (every line, including the last, ends in
   # \n because bash's printf emits one per line), then hashed as one stream.
@@ -501,7 +501,7 @@ function Merge-ClaudeDir {
     }
 
     # Merge-SkillLinks is the sole owner of any entry under a skill-link
-    # name (see $script:SkillLinkNames), at any depth — not just the
+    # name (see $script:SkillLinkNames), at any depth - not just the
     # depth-1 path. That matters here specifically: Get-ChildItem -Recurse
     # follows directory reparse points on Windows PowerShell 5.1 (no
     # opt-out short of -FollowSymlink, added in PS6), so a real-symlink
@@ -619,7 +619,7 @@ function Merge-ClaudeMd {
   $existing = [System.IO.File]::ReadAllText($targetMd)
   # Split on bare `n only (not `r?`n) so any `r attached to a line, and any
   # trailing "" element that encodes a final newline, survive round-tripping
-  # through -join later — this is what keeps the splice byte-for-byte.
+  # through -join later - this is what keeps the splice byte-for-byte.
   $lines = $existing -split "`n"
 
   if (-not ($lines | Where-Object { $_ -ceq $beginMarker })) {
@@ -706,7 +706,7 @@ function Run-EnvSetup {
   $setupScript = Join-Path $Work 'pack\scripts\setup-env.sh'
 
   if (-not (Test-Path $setupScript)) {
-    Write-Log "setup-env.sh not found in pack — skipping"
+    Write-Log "setup-env.sh not found in pack - skipping"
     return
   }
 
@@ -719,9 +719,9 @@ function Run-EnvSetup {
       Where-Object { $_.Source -like '*System32*' } |
       Select-Object -First 1
     if ($wslBash) {
-      Write-Log "Only WSL bash found — skipping setup-env.sh. Install Git Bash and re-run, or run manually: bash scripts/setup-env.sh"
+      Write-Log "Only WSL bash found - skipping setup-env.sh. Install Git Bash and re-run, or run manually: bash scripts/setup-env.sh"
     } else {
-      Write-Log "bash not found — skipping setup-env.sh. Install Git Bash and re-run, or run manually: bash scripts/setup-env.sh"
+      Write-Log "bash not found - skipping setup-env.sh. Install Git Bash and re-run, or run manually: bash scripts/setup-env.sh"
     }
     return
   }
@@ -749,7 +749,7 @@ function Run-Analysis {
   if (-not (Test-Path $promptFile)) { return }
 
   if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
-    Write-Log "Claude CLI not found — skipping stack analysis."
+    Write-Log "Claude CLI not found - skipping stack analysis."
     Write-Log "To install: npm i -g @anthropic-ai/claude-code"
     return
   }

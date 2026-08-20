@@ -21,18 +21,18 @@ wget -qO- https://dev.leonard.solutions | bash
 iwr -useb https://raw.githubusercontent.com/LeonardM01/dev-team-pack/main/install.ps1 | iex
 ```
 
-`cd` into your project first — the script operates on the current working directory.
+`cd` into your project first - the script operates on the current working directory.
 
 ## What it does
 
 1. Clones dev-team-pack into a temp directory (shallow `git clone`; falls back to the GitHub codeload tarball if `git` is not available).
 2. **Prompts you to select AI tool targets** (`claude`, `cursor`, or both) and **which MCP servers** to enable (any subset of `context7`, `figma`, `playwright`, `atlassian`, `linear`, `lean-ctx`, `XcodeBuildMCP`). Only the selected targets and servers are installed. Use env vars (see Configuration) to skip prompts entirely.
 3. Copies `.claude/` (agents, skills, settings) into the project for the selected tool targets. `agent-memory/` is always preserved. Files already in the project that this pack did not write are left alone; see [Updating](#updating) for what happens to pack files on a re-run.
-4. Merges `.agents/` (the tool-neutral skills directory — `code-review`, `domain-modeling`, `grill-with-docs`, `grilling`, `research`, `tdd`, `to-spec`, `to-tickets`, `unslop`) into the project. Unlike `.claude/` and `.cursor/`, this step is **not gated by tool selection** — it installs regardless of which tools you chose, because `.agents/` maps to no member of the `claude`/`cursor` tool universe and gating it on `claude` would hide it from cursor-only users. There is currently no opt-out. `unslop` is a style filter, not a workflow. It strips AI writing tells (puffery, stock AI vocabulary, em dash overuse, title-case headings) from prose such as docs, commit messages, and user-facing copy, then rewrites for a human voice. It is vendored from [`cursor/plugins`](https://github.com/cursor/plugins/tree/main/pstack/skills/unslop). Unlike the other tool-neutral skills, it is not tracked in `skills-lock.json` — that file is maintained by the external `skills` CLI and only covers skills fetched from `mattpocock/skills`.
+4. Merges `.agents/` (the tool-neutral skills directory - `code-review`, `domain-modeling`, `grill-with-docs`, `grilling`, `research`, `tdd`, `to-spec`, `to-tickets`, `unslop`) into the project. Unlike `.claude/` and `.cursor/`, this step is **not gated by tool selection** - it installs regardless of which tools you chose, because `.agents/` maps to no member of the `claude`/`cursor` tool universe and gating it on `claude` would hide it from cursor-only users. There is currently no opt-out. `unslop` is a style filter, not a workflow. It strips AI writing tells (puffery, stock AI vocabulary, em dash overuse, title-case headings) from prose such as docs, commit messages, and user-facing copy, then rewrites for a human voice. It is vendored from [`cursor/plugins`](https://github.com/cursor/plugins/tree/main/pstack/skills/unslop). Unlike the other tool-neutral skills, it is not tracked in `skills-lock.json` - that file is maintained by the external `skills` CLI and only covers skills fetched from `mattpocock/skills`.
 
-   In this pack, nine of the `.claude/skills/` entries (`code-review`, `domain-modeling`, `grill-with-docs`, `grilling`, `research`, `tdd`, `to-spec`, `to-tickets`, `unslop`) are symlinks into `.agents/skills/`. The installer does not recreate symlinks in your project — it materializes real files at both `.agents/skills/<name>/` and `.claude/skills/<name>/`, tracked as independent files in `.dev-team-pack.json`. **Editing one copy does not update the other**, and each can independently show up as a conflict on a later update. Symlinks aren't used because they break on Windows without Developer Mode, don't fit the per-file add/update/conflict state model, and this way `install.sh` and `install.ps1` stay behaviourally identical — important since `.dev-team-pack.json` is meant to be committed and shared across a team on mixed platforms.
-5. Copies `.mcp.json` to the project root containing only the selected MCP servers. On a re-run it is updated, kept or reported as a conflict like any other pack file — see [Updating](#updating).
-6. Appends the pack's `CLAUDE.md` to the project's `CLAUDE.md`, wrapped in `<!-- dev-team-pack:begin -->` / `<!-- dev-team-pack:end -->` markers. On a re-run the block is updated in place if you haven't edited it, or reported as a conflict if you have — see [Updating](#updating).
+   In this pack, nine of the `.claude/skills/` entries (`code-review`, `domain-modeling`, `grill-with-docs`, `grilling`, `research`, `tdd`, `to-spec`, `to-tickets`, `unslop`) are symlinks into `.agents/skills/`. The installer does not recreate symlinks in your project - it materializes real files at both `.agents/skills/<name>/` and `.claude/skills/<name>/`, tracked as independent files in `.dev-team-pack.json`. **Editing one copy does not update the other**, and each can independently show up as a conflict on a later update. Symlinks aren't used because they break on Windows without Developer Mode, don't fit the per-file add/update/conflict state model, and this way `install.sh` and `install.ps1` stay behaviourally identical - important since `.dev-team-pack.json` is meant to be committed and shared across a team on mixed platforms.
+5. Copies `.mcp.json` to the project root containing only the selected MCP servers. On a re-run it is updated, kept or reported as a conflict like any other pack file - see [Updating](#updating).
+6. Appends the pack's `CLAUDE.md` to the project's `CLAUDE.md`, wrapped in `<!-- dev-team-pack:begin -->` / `<!-- dev-team-pack:end -->` markers. On a re-run the block is updated in place if you haven't edited it, or reported as a conflict if you have - see [Updating](#updating).
 7. Runs `scripts/setup-env.sh` to install/verify the global tool stack: `lean-ctx`, `claude-mem`, and the Superpowers Claude Code plugin.
 8. If the `claude` CLI is installed, runs a one-shot analysis that detects the project's tech stack and rewrites the Tech Stack + Commands sections of the dev-team block in `CLAUDE.md` to reflect the actual `package.json` scripts (or equivalent).
 
@@ -61,7 +61,7 @@ The installer records what it wrote in `.dev-team-pack.json`. On a re-run it:
 Environment equivalents: `DEV_TEAM_FORCE=1` and `DEV_TEAM_RECONFIGURE=1`.
 
 A run that leaves a conflict records it in `.dev-team-pack.json`, and every
-later run re-lists it — including runs that are otherwise up to date — until
+later run re-lists it - including runs that are otherwise up to date - until
 you resolve it by hand or with `--force`.
 
 **Resetting the baseline.** `--force` overwrites *conflicts*, but it will not
@@ -88,7 +88,7 @@ subset of `install.sh` and has no tool or MCP selection prompts to re-open.
 Commit `.dev-team-pack.json` so everyone on the team shares the same baseline.
 
 **On your first re-run after upgrading to an installer that supports this,**
-your current files become the recorded baseline — including any customizations.
+your current files become the recorded baseline - including any customizations.
 A later update may overwrite them if upstream changes the same file. The install
 summary flags how many files were adopted so you can review them.
 
@@ -126,8 +126,8 @@ DEV_TEAM_TOOLS=claude DEV_TEAM_MCPS=context7,lean-ctx curl -fsSL https://dev.leo
 
 - `git` OR (`curl` or `wget`) for fetching
 - `tar` (Windows 10+ ships it; macOS/Linux include it by default)
-- `jq` or `python3` for MCP server filtering — if neither is found, all MCPs are installed unfiltered with a warning. Both ship by default on macOS; nearly all Linux distros include `python3`.
-- `claude` CLI — optional; install via `npm i -g @anthropic-ai/claude-code`. If missing, files are still copied but the tech-stack analysis step is skipped.
+- `jq` or `python3` for MCP server filtering - if neither is found, all MCPs are installed unfiltered with a warning. Both ship by default on macOS; nearly all Linux distros include `python3`.
+- `claude` CLI - optional; install via `npm i -g @anthropic-ai/claude-code`. If missing, files are still copied but the tech-stack analysis step is skipped.
 - Windows: `scripts/setup-env.sh` requires WSL or Git Bash. Without them, the installer logs a warning and continues; run `setup-env.sh` manually afterward.
 
 ## Idempotency
@@ -147,11 +147,11 @@ Defined in `.claude/agents/`:
 | Agent | Name | Role |
 |---|---|---|
 | `code-architect` | **Albus** | Analyzes codebase patterns, designs the architecture, breaks work into tasks, and delegates. Model: Opus. |
-| `fullstack-developer` | **Harry** | Implements features across DB, API, frontend, and mobile — whatever stack the project uses. Model: Sonnet. |
+| `fullstack-developer` | **Harry** | Implements features across DB, API, frontend, and mobile - whatever stack the project uses. Model: Sonnet. |
 | `code-reviewer` | Hermione | Reviews diffs for correctness, requirement coverage, edge cases, security. |
 | `docs-maintainer` | Ron | Keeps README / CLAUDE.md / docs in sync after code changes. |
 
-Albus is the orchestrator — he delegates implementation to Harry (baseline first, then one task per blueprint phase), hands the diff plus blueprint and requirements to Hermione for review (max 3 rounds, blocker/should-fix/nit severity), then to Ron for docs. He tracks the run in a `PROGRESS.md` scratchpad in the working directory.
+Albus is the orchestrator - he delegates implementation to Harry (baseline first, then one task per blueprint phase), hands the diff plus blueprint and requirements to Hermione for review (max 3 rounds, blocker/should-fix/nit severity), then to Ron for docs. He tracks the run in a `PROGRESS.md` scratchpad in the working directory.
 
 Each agent has its own persistent memory under `.claude/agent-memory/<agent>/` (versioned, shared with the team).
 
@@ -160,7 +160,7 @@ Each agent has its own persistent memory under `.claude/agent-memory/<agent>/` (
 `.claude/skills/jira-start/SKILL.md` is the entry point. It:
 
 1. Asks you for a **Jira ticket key** (e.g. `PROJ-123`) and a **target repo path**.
-2. Fetches the full ticket via the **Atlassian MCP server** — description, acceptance criteria, linked issues, sub-tasks, recent comments, attachments.
+2. Fetches the full ticket via the **Atlassian MCP server** - description, acceptance criteria, linked issues, sub-tasks, recent comments, attachments.
 3. Creates a git worktree at `<repo>/.worktrees/<TICKET>` on a branch named after the ticket (adding `.worktrees/` to `.gitignore` if missing).
 4. Writes a normalized brief to `<worktree>/.jira-brief.md`.
 5. Delegates to **Albus** (`code-architect`) with the brief and worktree path. Albus then runs the normal chain: design → Harry implements → Hermione reviews → Ron updates docs.
@@ -203,10 +203,10 @@ Answer the two prompts (issue ID + repo path). The skill does the rest and hands
 ## Using this repo in Cursor
 
 - Install [Cursor](https://cursor.sh).
-- On first open, Cursor will prompt to approve MCP servers from `.cursor/mcp.json` — approve all five (`context7`, `figma`, `playwright`, `atlassian`, `linear`).
+- On first open, Cursor will prompt to approve MCP servers from `.cursor/mcp.json` - approve all five (`context7`, `figma`, `playwright`, `atlassian`, `linear`).
 - Set `FIGMA_API_KEY` in your environment if you use the Figma server.
 - Trigger the team: type `@albus-architect` for a direct kickoff, or `@jira-start` to run the Jira flow.
-- **Persona switching**: Cursor has no subagent primitive, so Albus explicitly "switches persona" mid-session by loading the next rule. This is intentional — follow the agent's announcements to know which persona is currently active.
+- **Persona switching**: Cursor has no subagent primitive, so Albus explicitly "switches persona" mid-session by loading the next rule. This is intentional - follow the agent's announcements to know which persona is currently active.
 - **Parallel tickets**: open each `.worktrees/<KEY>` as a separate Cursor window (File → Open Folder).
 
 ### Keeping Cursor files in sync
@@ -230,7 +230,7 @@ cd /path/to/repo/.worktrees/PROJ-123
 claude
 ```
 
-Sessions are isolated by worktree — no branch switching, no conflicts, no stepping on each other.
+Sessions are isolated by worktree - no branch switching, no conflicts, no stepping on each other.
 
 ## Finishing a ticket
 
@@ -260,8 +260,8 @@ git -C /path/to/repo branch -D <TICKET>
                                    grilling, research, tdd, to-spec, to-tickets, unslop) are
                                    symlinks to ../../.agents/skills/<name>
                                    in this repo; the installer materializes them as independent
-                                   real files in target projects — see "What it does" step 4
-.cursor/                          generated — do not edit by hand (run scripts/sync-cursor.mjs)
+                                   real files in target projects - see "What it does" step 4
+.cursor/                          generated - do not edit by hand (run scripts/sync-cursor.mjs)
   mcp.json                        copy of .mcp.json for Cursor's MCP approval flow
   README.md                       notice that these files are generated
   rules/
@@ -281,6 +281,6 @@ scripts/
 
 ## Customizing
 
-- **Rename agents** — edit the `You are <Name>, ...` line at the top of each `.claude/agents/*.md`. If you rename an agent file itself, run `node scripts/sync-cursor.mjs` afterward to regenerate the corresponding Cursor rule.
-- **Change the worktree location** — edit Step 4 of `.claude/skills/jira-start/SKILL.md`.
-- **Swap Jira for another tracker** — replace the Atlassian MCP calls in Step 2 of the skill with your tracker's MCP or CLI.
+- **Rename agents** - edit the `You are <Name>, ...` line at the top of each `.claude/agents/*.md`. If you rename an agent file itself, run `node scripts/sync-cursor.mjs` afterward to regenerate the corresponding Cursor rule.
+- **Change the worktree location** - edit Step 4 of `.claude/skills/jira-start/SKILL.md`.
+- **Swap Jira for another tracker** - replace the Atlassian MCP calls in Step 2 of the skill with your tracker's MCP or CLI.

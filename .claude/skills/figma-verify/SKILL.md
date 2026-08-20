@@ -13,13 +13,13 @@ Compare an implemented front-end against its Figma design source of truth. Produ
 - A **dev server is running** at a reachable URL
 - If either is missing, prompt the user before proceeding
 
-## Phase 1 — Capture
+## Phase 1 - Capture
 
 ### Step 1: Get Figma Design
 
 1. Extract `fileKey` and `nodeId` from the Figma URL:
-   - `figma.com/design/:fileKey/:name?node-id=:nodeId` — convert `-` to `:` in nodeId
-   - `figma.com/design/:fileKey/branch/:branchKey/:name` — use `branchKey` as fileKey
+   - `figma.com/design/:fileKey/:name?node-id=:nodeId` - convert `-` to `:` in nodeId
+   - `figma.com/design/:fileKey/branch/:branchKey/:name` - use `branchKey` as fileKey
 2. Call `get_screenshot(nodeId, fileKey)` to capture the design screenshot
 3. Call `get_design_context(nodeId, fileKey)` to get structural metadata: component hierarchy, design tokens (colors, spacing, typography), and layout information
 
@@ -38,7 +38,7 @@ Compare an implemented front-end against its Figma design source of truth. Produ
    - Call `browser_take_screenshot(filename)` to capture the implementation screenshot
    - Call `browser_snapshot()` to capture the accessibility tree
 
-## Phase 2 — Compare
+## Phase 2 - Compare
 
 ### Step 3: Structural Check (First)
 
@@ -66,9 +66,9 @@ For each viewport screenshot, compare against the Figma design screenshot. Analy
 
 Categorize every difference as one of:
 
-- **Critical** — Missing sections, wrong layouts, incorrect data flows, broken interactive elements, wrong colors on key UI elements
-- **Important** — Color drift beyond minor shade variation, typography inconsistencies (wrong weight, noticeably different size), spacing noticeably off, missing hover/focus states
-- **Acceptable** — Font antialiasing differences, sub-pixel rounding, system font fallbacks, scrollbar styling, OS-level rendering differences, minor shadow/blur differences
+- **Critical** - Missing sections, wrong layouts, incorrect data flows, broken interactive elements, wrong colors on key UI elements
+- **Important** - Color drift beyond minor shade variation, typography inconsistencies (wrong weight, noticeably different size), spacing noticeably off, missing hover/focus states
+- **Acceptable** - Font antialiasing differences, sub-pixel rounding, system font fallbacks, scrollbar styling, OS-level rendering differences, minor shadow/blur differences
 
 ### Step 5: Responsive Verification (When Applicable)
 
@@ -78,7 +78,7 @@ If testing multiple viewports, also check:
 - Content doesn't overflow or clip at any width
 - Navigation collapses to mobile menu where expected
 
-## Phase 3 — Report
+## Phase 3 - Report
 
 ### Step 6: Generate Report
 
@@ -99,16 +99,16 @@ Output a structured Markdown report:
 ## Structural Comparison
 
 ### Component Presence
-[Pass/Fail — list any missing components]
+[Pass/Fail - list any missing components]
 
 ### Heading Hierarchy
-[Pass/Fail — describe issues]
+[Pass/Fail - describe issues]
 
 ### Text Accuracy
-[Pass/Fail — list mismatches]
+[Pass/Fail - list mismatches]
 
 ### Accessibility
-[Pass/Fail — ARIA issues, tab order problems]
+[Pass/Fail - ARIA issues, tab order problems]
 
 ## Visual Comparison
 
@@ -121,12 +121,12 @@ Output a structured Markdown report:
 [List or "None"]
 
 #### Acceptable Variations
-[List — these are informational, not blockers]
+[List - these are informational, not blockers]
 
-### Mobile (375x812) — if applicable
+### Mobile (375x812) - if applicable
 [same structure]
 
-### Tablet (768x1024) — if applicable
+### Tablet (768x1024) - if applicable
 [same structure]
 
 ## Overall Verdict
@@ -138,9 +138,9 @@ Output a structured Markdown report:
 
 ### Verdict Rules
 
-- **PASS** — No critical or important issues. Only acceptable variations exist.
-- **PASS WITH NOTES** — No critical issues, but important issues exist that should be addressed soon. List them clearly.
-- **FAIL** — One or more critical issues exist. Implementation does not match the design intent and needs rework before merging.
+- **PASS** - No critical or important issues. Only acceptable variations exist.
+- **PASS WITH NOTES** - No critical issues, but important issues exist that should be addressed soon. List them clearly.
+- **FAIL** - One or more critical issues exist. Implementation does not match the design intent and needs rework before merging.
 
 ## Edge Cases
 

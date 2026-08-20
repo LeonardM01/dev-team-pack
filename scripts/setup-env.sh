@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup-env.sh — bootstrap a new dev environment with global tools
+# setup-env.sh - bootstrap a new dev environment with global tools
 # Run: bash scripts/setup-env.sh
 set -euo pipefail
 
@@ -44,7 +44,7 @@ if command -v claude &>/dev/null; then
   lean-ctx init --agent claude
   ok "lean-ctx configured for Claude Code"
 else
-  warn "Claude Code CLI not found — skipping Claude-specific config. Install from https://claude.ai/code"
+  warn "Claude Code CLI not found - skipping Claude-specific config. Install from https://claude.ai/code"
 fi
 
 # Install agent instructions for Cursor
@@ -78,10 +78,10 @@ if command -v claude &>/dev/null; then
     claude plugin marketplace add claude-plugins-official 2>/dev/null || true
     claude plugin install superpowers@claude-plugins-official \
       && ok "Superpowers installed" \
-      || warn "Superpowers install failed (non-fatal) — add the marketplace manually (see https://claude.com/plugins/superpowers) then run: claude plugin install superpowers@claude-plugins-official"
+      || warn "Superpowers install failed (non-fatal) - add the marketplace manually (see https://claude.com/plugins/superpowers) then run: claude plugin install superpowers@claude-plugins-official"
   fi
 else
-  warn "Claude Code CLI not found — skipping Superpowers install"
+  warn "Claude Code CLI not found - skipping Superpowers install"
 fi
 
 # ─── 4. Verify ────────────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ if command -v claude &>/dev/null; then
   if is_superpowers_installed; then
     ok "Superpowers plugin: installed"
   else
-    warn "Superpowers plugin: not found — run: claude plugin install superpowers@claude-plugins-official"
+    warn "Superpowers plugin: not found - run: claude plugin install superpowers@claude-plugins-official"
   fi
 fi
 

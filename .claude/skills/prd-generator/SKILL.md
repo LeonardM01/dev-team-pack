@@ -7,7 +7,7 @@ description: "Generate comprehensive Product Requirements Documents (PRDs) throu
 
 Generate well-structured Product Requirements Documents that align stakeholders and guide development.
 
-## Step 1 — Discovery
+## Step 1 - Discovery
 
 Before generating the PRD, collect essential information. Ask these questions, skipping any the user has already answered in their brief:
 
@@ -23,25 +23,25 @@ Before generating the PRD, collect essential information. Ask these questions, s
 
 If the user provides a detailed brief upfront, proceed directly to Step 2. Always ask for clarification on missing critical information.
 
-## Step 2 — Generate PRD
+## Step 2 - Generate PRD
 
 Produce the PRD with these sections (adapt depth based on format):
 
-1. **Executive Summary** — 2-3 paragraph high-level overview
-2. **Problem Statement** — Clear articulation of the problem and its impact
-3. **Goals & Objectives** — What we're trying to achieve, tied to business value
-4. **User Personas** — Who we're building for, their needs and pain points
-5. **User Stories & Requirements** — Detailed functional requirements (see Step 3)
-6. **Success Metrics** — KPIs and measurement criteria (see Step 4)
-7. **Scope** — Explicitly what's in scope AND out of scope
-8. **Technical Considerations** — Architecture, dependencies, security, performance, compatibility
-9. **Design & UX Requirements** — UI/UX considerations, accessibility (WCAG), responsive design. **Include Figma links here if available.**
-10. **Timeline & Milestones** — Key dates and phases
-11. **Risks & Mitigation** — Potential issues and solutions
-12. **Dependencies & Assumptions** — What we're relying on
-13. **Open Questions** — Unresolved items needing resolution
+1. **Executive Summary** - 2-3 paragraph high-level overview
+2. **Problem Statement** - Clear articulation of the problem and its impact
+3. **Goals & Objectives** - What we're trying to achieve, tied to business value
+4. **User Personas** - Who we're building for, their needs and pain points
+5. **User Stories & Requirements** - Detailed functional requirements (see Step 3)
+6. **Success Metrics** - KPIs and measurement criteria (see Step 4)
+7. **Scope** - Explicitly what's in scope AND out of scope
+8. **Technical Considerations** - Architecture, dependencies, security, performance, compatibility
+9. **Design & UX Requirements** - UI/UX considerations, accessibility (WCAG), responsive design. **Include Figma links here if available.**
+10. **Timeline & Milestones** - Key dates and phases
+11. **Risks & Mitigation** - Potential issues and solutions
+12. **Dependencies & Assumptions** - What we're relying on
+13. **Open Questions** - Unresolved items needing resolution
 
-## Step 3 — User Stories
+## Step 3 - User Stories
 
 For each major requirement, generate user stories:
 
@@ -58,18 +58,18 @@ Acceptance Criteria:
 
 Stories should be independent, user-focused, and small enough to estimate. Include clear acceptance criteria. Don't include implementation details.
 
-## Step 4 — Success Metrics
+## Step 4 - Success Metrics
 
 Choose one primary framework based on the product type:
 
-- **AARRR (Pirate Metrics)** — Acquisition, Activation, Retention, Revenue, Referral. Best for growth-focused features.
-- **HEART Framework** — Happiness, Engagement, Adoption, Retention, Task Success. Best for UX improvements.
-- **North Star Metric** — Single key metric representing core value. Best for product launches.
-- **OKRs** — Objectives and Key Results. Best for strategic initiatives.
+- **AARRR (Pirate Metrics)** - Acquisition, Activation, Retention, Revenue, Referral. Best for growth-focused features.
+- **HEART Framework** - Happiness, Engagement, Adoption, Retention, Task Success. Best for UX improvements.
+- **North Star Metric** - Single key metric representing core value. Best for product launches.
+- **OKRs** - Objectives and Key Results. Best for strategic initiatives.
 
 Define measurable targets for each metric. Include both leading and lagging indicators.
 
-## Step 5 — Quality Checklist
+## Step 5 - Quality Checklist
 
 Before finalizing, verify:
 
@@ -113,7 +113,7 @@ After generating the PRD, scan the **Design & UX Requirements** section and any 
    This PRD includes Figma design references. Upon implementation completion,
    the `figma-verify` skill MUST be automatically invoked to compare the
    implemented front-end against the Figma design. This is a mandatory step
-   — do NOT consider front-end work done until the visual verification report
+ - do NOT consider front-end work done until the visual verification report
    shows PASS or PASS WITH NOTES.
    ```
 

@@ -1,4 +1,4 @@
-# verify-install-ps1.ps1 — manual verification matrix for install.ps1's update
+# verify-install-ps1.ps1 - manual verification matrix for install.ps1's update
 # detection (Task 10 of the installer-update-detection plan).
 #
 # The bash test harness (tests/install-update.test.sh, tests/decide.test.sh)
@@ -358,7 +358,7 @@ pack_tree_hash
   Write-Host "`n=== Case 15: install.ps1 carries forward state keys it does not own ==="
   # install.ps1 has no .cursor merge and no tool selection, so a PowerShell run
   # over a bash-created target must not drop the .cursor/* keys install.sh
-  # recorded — dropping them permanently untracks those files for BOTH
+  # recorded - dropping them permanently untracks those files for BOTH
   # installers (keep-untracked never re-records in update mode).
   $Sandbox15 = Join-Path $Sandbox 'case15'
   New-Item -ItemType Directory -Path $Sandbox15 | Out-Null
@@ -379,7 +379,7 @@ pack_tree_hash
 
   Write-Host "`n=== Case 16: state file is BOM-less UTF-8 and readable by install.sh ==="
   # Windows PowerShell 5.1's Set-Content -Encoding UTF8 emits a UTF-8 BOM,
-  # which install.sh's python3 json.load rejects — and jq accepts, so the
+  # which install.sh's python3 json.load rejects - and jq accepts, so the
   # friendly "Corrupt state file" guard did not catch it either.
   $statePath16 = Join-Path $Sandbox15 '.dev-team-pack.json'
   $bytes16 = [System.IO.File]::ReadAllBytes($statePath16)

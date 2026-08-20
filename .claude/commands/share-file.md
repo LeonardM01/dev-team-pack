@@ -38,4 +38,4 @@ Steps:
 Notes:
 - The URL is public but unguessable (12 hex chars = 2^48 entropy).
 - The deployment persists until removed with `surge teardown <SUB>`.
-- Do NOT delete `$STAGE` — surge needs nothing from it after deploy, but leaving it costs nothing and avoids race conditions.
+- Do NOT delete `$STAGE` - surge needs nothing from it after deploy, but leaving it costs nothing and avoids race conditions.

@@ -493,7 +493,7 @@ add_agents_fixture() {
 }
 
 # A Windows clone with core.symlinks=false checks out .claude/skills/tdd not
-# as a symlink but as a plain text file holding the link target — this is
+# as a symlink but as a plain text file holding the link target - this is
 # what Merge-SkillLinks / merge_skill_links resolve, and what the F3
 # skill-link predicate must classify as a link even though `[ -L ... ]` is
 # false for it.

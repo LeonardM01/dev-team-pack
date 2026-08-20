@@ -15,16 +15,16 @@ Check before doing anything else. If any fail, stop and tell the user.
 2. **Target repo is a git repo.** `git -C <repo> rev-parse --is-inside-work-tree` must succeed.
 3. **Working tree of the main checkout is clean-ish.** Warn (don't block) on uncommitted changes in the main checkout; worktrees are independent so this is informational.
 
-## Step 1 — Collect inputs
+## Step 1 - Collect inputs
 
 Use `AskUserQuestion` to ask for:
 
 1. **Linear issue identifier** (e.g. `ENG-123`). Free text. Validate format `^[A-Z][A-Z0-9]*-\d+$`.
 2. **Target repo absolute path**. Free text. Default to the current working directory if it's a git repo.
 
-Do not guess — always ask, even if an identifier appears elsewhere in context.
+Do not guess - always ask, even if an identifier appears elsewhere in context.
 
-## Step 2 — Fetch issue data via Linear MCP
+## Step 2 - Fetch issue data via Linear MCP
 
 Call `mcp__plugin_linear_linear__get_issue` with the identifier. Also call `mcp__plugin_linear_linear__list_comments` for comments. Gather:
 
@@ -33,14 +33,14 @@ Call `mcp__plugin_linear_linear__get_issue` with the identifier. Also call `mcp_
 - Assignee, creator, created/updated timestamps
 - Parent issue, sub-issues (id + title)
 - Related/linked issues and their relation type
-- Attachments: list titles and URLs (do not download unless needed) — use `mcp__plugin_linear_linear__get_attachment` only if necessary
+- Attachments: list titles and URLs (do not download unless needed) - use `mcp__plugin_linear_linear__get_attachment` only if necessary
 - Most recent ~10 comments (author, created, body) via `list_comments`
 - Canonical Linear URL (the `url` field on the issue)
 - Linked git branch name suggestion if Linear provides one (`branchName` field)
 
 If the issue does not exist or the MCP call fails, abort with the error message.
 
-## Step 2.5 — Transition issue to a started state
+## Step 2.5 - Transition issue to a started state
 
 Move the issue into Linear's `started` workflow category so it shows as in-progress on boards. This runs after fetch and before worktree creation; failures here warn but do not block.
 
@@ -54,7 +54,7 @@ Move the issue into Linear's `started` workflow category so it shows as in-progr
 
 Never block worktree creation on a tracker-side failure.
 
-## Step 3 — Normalize into a brief
+## Step 3 - Normalize into a brief
 
 Render the fetched data into `<repo>/.worktrees/<ISSUE>/.linear-brief.md` with this structure:
 
@@ -72,24 +72,24 @@ Render the fetched data into `<repo>/.worktrees/<ISSUE>/.linear-brief.md` with t
 <full description markdown>
 
 ## Parent / Sub-issues
-- Parent: <ID> — <title>
-- Sub: <ID> — <title>
+- Parent: <ID> - <title>
+- Sub: <ID> - <title>
 
 ## Related Issues
 - <ID> (<relation>): <title>
 
 ## Attachments
-- <title> — <url>
+- <title> - <url>
 
 ## Recent Comments
-### <author> — <date>
+### <author> - <date>
 <body>
 ...
 ```
 
-(Write this file AFTER the worktree exists — see Step 4.)
+(Write this file AFTER the worktree exists - see Step 4.)
 
-## Step 4 — Create the worktree
+## Step 4 - Create the worktree
 
 1. Ensure `.worktrees/` is ignored: read `<repo>/.gitignore`; if `.worktrees/` is not present, append it on its own line. If `.gitignore` doesn't exist, create it with that single line.
 2. Derive the branch name: prefer Linear's suggested `branchName` if present; otherwise use the issue identifier verbatim (e.g. `ENG-123`). If the repo uses lowercase branch conventions (check recent branches via `git -C <repo> branch --format='%(refname:short)' | head -20`), lowercase it.
@@ -98,20 +98,20 @@ Render the fetched data into `<repo>/.worktrees/<ISSUE>/.linear-brief.md` with t
 5. If `.worktrees/<ISSUE>` already exists as a worktree, ask whether to reuse it, remove+recreate, or abort.
 6. Now write the brief file from Step 3 into the worktree.
 
-## Step 5 — Delegate to code-architect (Albus)
+## Step 5 - Delegate to code-architect (Albus)
 
 Invoke the agent via the `Agent` tool:
 
 - `subagent_type: "code-architect"`
 - `description`: "Kick off <ISSUE>: <short title>"
 - `prompt`: include the full `.linear-brief.md` contents inline, the worktree absolute path, the Linear URL, and an explicit instruction: "Treat `<worktree path>` as your working directory. Follow your normal chain: analyze patterns, design the architecture, delegate implementation to the fullstack-developer (Harry), then hand off to code-reviewer and docs-maintainer as appropriate. Do not modify files outside the worktree."
-- Do NOT pass `isolation: worktree` — the worktree we created IS the isolation.
+- Do NOT pass `isolation: worktree` - the worktree we created IS the isolation.
 
-## Step 6 — Report back to the user
+## Step 6 - Report back to the user
 
 Output a short summary:
 
-- Issue: `<ID>` — `<title>` (`<linear url>`)
+- Issue: `<ID>` - `<title>` (`<linear url>`)
 - Worktree: `<absolute path>`
 - Branch: `<branch>`
 - Brief: `<worktree>/.linear-brief.md`
@@ -125,7 +125,7 @@ Tell the user they can open a separate Claude session with `cwd=<worktree>` to c
 - **Do not edit anything outside `<repo>/.gitignore` and `<worktree>/.linear-brief.md`** during the skill run.
 - **Do not download attachments** unless the architect later asks for them.
 - **Tracker writes are scoped to a single status transition** (to a `started`-category state). Do not change assignee, description, comments, or any other field on the Linear issue during this skill.
-- **Never reuse a dirty worktree silently** — always prompt.
+- **Never reuse a dirty worktree silently** - always prompt.
 
 ## Parallel issues
 

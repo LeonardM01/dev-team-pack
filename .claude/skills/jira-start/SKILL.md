@@ -15,23 +15,23 @@ Check before doing anything else. If any fail, stop and tell the user.
 2. **Target repo is a git repo.** `git -C <repo> rev-parse --is-inside-work-tree` must succeed.
 3. **Working tree of the main checkout is clean-ish.** Warn (don't block) on uncommitted changes in the main checkout; worktrees are independent so this is informational.
 
-## Step 1 — Collect inputs
+## Step 1 - Collect inputs
 
 Use `AskUserQuestion` to ask for:
 
 1. **Jira ticket key** (e.g. `PROJ-123`). Free text. Validate format `^[A-Z][A-Z0-9]+-\d+$`.
 2. **Target repo absolute path**. Free text. Default to the current working directory if it's a git repo.
 
-Do not guess — always ask, even if a key appears elsewhere in context.
+Do not guess - always ask, even if a key appears elsewhere in context.
 
-## Step 2 — Fetch ticket data via Atlassian MCP
+## Step 2 - Fetch ticket data via Atlassian MCP
 
 Call the Atlassian MCP tool(s) to retrieve the issue. Gather:
 
 - Summary, description (full, not truncated), status, priority, issue type
 - Labels, components, fix versions
 - Assignee, reporter, created/updated timestamps
-- Acceptance criteria field (custom field — look for `customfield_*` labeled "Acceptance Criteria" or similar)
+- Acceptance criteria field (custom field - look for `customfield_*` labeled "Acceptance Criteria" or similar)
 - Attachments: list filenames and URLs (do not download unless needed)
 - Linked issues and sub-tasks (key + summary + link type)
 - Most recent ~10 comments (author, created, body)
@@ -39,7 +39,7 @@ Call the Atlassian MCP tool(s) to retrieve the issue. Gather:
 
 If the ticket does not exist or the MCP call fails, abort with the error message.
 
-## Step 2.5 — Transition ticket to a started state
+## Step 2.5 - Transition ticket to a started state
 
 Move the ticket into Jira's `indeterminate` (in-progress) status category. Runs after fetch and before worktree creation; failures warn but do not block.
 
@@ -53,7 +53,7 @@ Move the ticket into Jira's `indeterminate` (in-progress) status category. Runs 
 
 Never block worktree creation on a tracker-side failure.
 
-## Step 3 — Normalize into a brief
+## Step 3 - Normalize into a brief
 
 Render the fetched data into `<repo>/.worktrees/<TICKET>/.jira-brief.md` with this structure:
 
@@ -76,17 +76,17 @@ Render the fetched data into `<repo>/.worktrees/<TICKET>/.jira-brief.md` with th
 - <KEY> (<link type>): <summary>
 
 ## Attachments
-- <filename> — <url>
+- <filename> - <url>
 
 ## Recent Comments
-### <author> — <date>
+### <author> - <date>
 <body>
 ...
 ```
 
-(Write this file AFTER the worktree exists — see Step 4.)
+(Write this file AFTER the worktree exists - see Step 4.)
 
-## Step 4 — Create the worktree
+## Step 4 - Create the worktree
 
 1. Ensure `.worktrees/` is ignored: read `<repo>/.gitignore`; if `.worktrees/` is not present, append it on its own line. If `.gitignore` doesn't exist, create it with that single line.
 2. Derive the branch name: use the ticket key verbatim (e.g. `PROJ-123`). If the repo uses lowercase branch conventions (check recent branches via `git -C <repo> branch --format='%(refname:short)' | head -20`), lowercase it.
@@ -95,20 +95,20 @@ Render the fetched data into `<repo>/.worktrees/<TICKET>/.jira-brief.md` with th
 5. If `.worktrees/<TICKET>` already exists as a worktree, ask whether to reuse it, remove+recreate, or abort.
 6. Now write the brief file from Step 3 into the worktree.
 
-## Step 5 — Delegate to code-architect (Albus)
+## Step 5 - Delegate to code-architect (Albus)
 
 Invoke the agent via the `Agent` tool:
 
 - `subagent_type: "code-architect"`
 - `description`: "Kick off <TICKET>: <short summary>"
 - `prompt`: include the full `.jira-brief.md` contents inline, the worktree absolute path, the Jira URL, and an explicit instruction: "Treat `<worktree path>` as your working directory. Follow your normal chain: analyze patterns, design the architecture, delegate implementation to the fullstack-developer (Harry), then hand off to code-reviewer and docs-maintainer as appropriate. Do not modify files outside the worktree."
-- Do NOT pass `isolation: worktree` — the worktree we created IS the isolation.
+- Do NOT pass `isolation: worktree` - the worktree we created IS the isolation.
 
-## Step 6 — Report back to the user
+## Step 6 - Report back to the user
 
 Output a short summary:
 
-- Ticket: `<KEY>` — `<summary>` (`<jira url>`)
+- Ticket: `<KEY>` - `<summary>` (`<jira url>`)
 - Worktree: `<absolute path>`
 - Branch: `<branch>`
 - Brief: `<worktree>/.jira-brief.md`
@@ -122,7 +122,7 @@ Tell the user they can open a separate Claude session with `cwd=<worktree>` to c
 - **Do not start coding yourself.** Your job is Jira fetch → worktree → delegate. Implementation is Albus's chain.
 - **Do not edit anything outside `<repo>/.gitignore` and `<worktree>/.jira-brief.md`** during the skill run.
 - **Do not download attachments** unless the architect later asks for them.
-- **Never reuse a dirty worktree silently** — always prompt.
+- **Never reuse a dirty worktree silently** - always prompt.
 
 ## Parallel tickets
 

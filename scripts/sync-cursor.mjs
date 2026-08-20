@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// sync-cursor.mjs — generates .cursor/ files from .claude/ sources
+// sync-cursor.mjs - generates .cursor/ files from .claude/ sources
 // Pure Node >=18, zero deps. Run: node scripts/sync-cursor.mjs
 // See blueprint §5 for behavior spec.
 
@@ -61,7 +61,7 @@ function stripClaudeFrontmatter(src) {
 
 // ─── shared preface text (§3.3) ─────────────────────────────────────────────
 
-const CURSOR_PREFACE = `## Cursor mode — persona switching (READ FIRST)
+const CURSOR_PREFACE = `## Cursor mode - persona switching (READ FIRST)
 
 You are operating inside Cursor, not Claude Code. Cursor has no subagent primitive, so the
 "delegation chain" from the Claude Code setup is expressed as **explicit persona switches
@@ -75,7 +75,7 @@ When this rule tells you to "delegate to Harry", you MUST:
   3. Continue execution under that persona until the persona's exit condition is met,
      then announce the next switch.
 
-Do NOT try to call a subagent tool — it does not exist here. Do NOT silently merge personas.
+Do NOT try to call a subagent tool - it does not exist here. Do NOT silently merge personas.
 Always be explicit about which persona is currently active so the user can follow along.
 
 Tools you had in Claude Code that don't exist in Cursor: the \`Agent\`/\`Task\` subagent tool,
@@ -104,22 +104,22 @@ across both tools.
 
 const FRONTMATTER = {
   albus: `---
-description: "Albus — senior architect persona. Invoke at the start of any non-trivial feature or Jira ticket kickoff. Analyzes existing patterns, designs the architecture, breaks work into tasks, and orchestrates the Harry → Hermione → Ron chain via explicit persona switches."
+description: "Albus - senior architect persona. Invoke at the start of any non-trivial feature or Jira ticket kickoff. Analyzes existing patterns, designs the architecture, breaks work into tasks, and orchestrates the Harry → Hermione → Ron chain via explicit persona switches."
 alwaysApply: false
 ---`,
 
   harry: `---
-description: "Harry — fullstack implementation persona. Adopt after Albus has produced an architecture blueprint. Implements DB / API / frontend changes following the blueprint. Hands off to Hermione when a reviewable diff is ready."
+description: "Harry - fullstack implementation persona. Adopt after Albus has produced an architecture blueprint. Implements DB / API / frontend changes following the blueprint. Hands off to Hermione when a reviewable diff is ready."
 alwaysApply: false
 ---`,
 
   hermione: `---
-description: "Hermione — code review persona. Adopt after Harry produces a diff. Reviews for correctness, edge cases, security, and adherence to Albus's blueprint. Hands off to Ron when the diff is approved."
+description: "Hermione - code review persona. Adopt after Harry produces a diff. Reviews for correctness, edge cases, security, and adherence to Albus's blueprint. Hands off to Ron when the diff is approved."
 alwaysApply: false
 ---`,
 
   ron: `---
-description: "Ron — docs maintainer persona. Adopt after Hermione approves a diff. Updates README, CLAUDE.md, and other docs so they stay in sync with merged changes."
+description: "Ron - docs maintainer persona. Adopt after Hermione approves a diff. Updates README, CLAUDE.md, and other docs so they stay in sync with merged changes."
 globs: ["**/README*", "**/*.md", "CLAUDE.md", ".cursor/rules/**"]
 alwaysApply: false
 ---`,
@@ -144,7 +144,7 @@ description: "Meta-skill: always check for applicable skills before responding. 
 alwaysApply: false
 ---`,
 
-  // alwaysApply:false despite upstream's "Must always apply" — every rule here is
+  // alwaysApply:false despite upstream's "Must always apply" - every rule here is
   // false, and true would inject ~6.5KB into every Cursor request. The always-intent
   // is carried in the description instead. The OpenAI side sets
   // allow_implicit_invocation:true because that harness pays the cost only on match.
@@ -160,7 +160,7 @@ const FOOTERS = {
   albus: `
 ---
 
-> **Handoff — Albus → Harry:** When the architecture is ready and tasks are broken down,
+> **Handoff - Albus → Harry:** When the architecture is ready and tasks are broken down,
 > switch to Harry by reading \`.cursor/rules/harry-developer.mdc\` and adopting that persona
 > for implementation. Announce: "Switching to Harry (fullstack-developer)."
 > After Harry's work, switch to Hermione (\`.cursor/rules/hermione-reviewer.mdc\`) for review,
@@ -170,7 +170,7 @@ const FOOTERS = {
   harry: `
 ---
 
-> **Handoff — Harry → Hermione:** When implementation is complete and a reviewable diff is
+> **Handoff - Harry → Hermione:** When implementation is complete and a reviewable diff is
 > ready, switch to Hermione by reading \`.cursor/rules/hermione-reviewer.mdc\` and adopting
 > that persona. Announce: "Switching to Hermione (code-reviewer)."
 `,
@@ -178,7 +178,7 @@ const FOOTERS = {
   hermione: `
 ---
 
-> **Handoff — Hermione → Ron:** When the diff is approved, switch to Ron by reading
+> **Handoff - Hermione → Ron:** When the diff is approved, switch to Ron by reading
 > \`.cursor/rules/ron-docs.mdc\` and adopting that persona. Announce: "Switching to Ron
 > (docs-maintainer)."
 `,
@@ -186,7 +186,7 @@ const FOOTERS = {
   ron: `
 ---
 
-> **Terminal persona — Ron:** Ron has no automatic handoff. When documentation is updated,
+> **Terminal persona - Ron:** Ron has no automatic handoff. When documentation is updated,
 > summarize every file you changed or created and report back to the user. The chain is
 > complete.
 `,
@@ -206,45 +206,45 @@ function buildJiraStartRule(rawSkillMd) {
 
   // Apply Cursor-specific string replacements (§3.4 transformation table)
   const replacements = [
-    // Step 1 — inputs: replace AskUserQuestion with plain chat instruction
+    // Step 1 - inputs: replace AskUserQuestion with plain chat instruction
     [
       `Use \`AskUserQuestion\` to ask for:
 
 1. **Jira ticket key** (e.g. \`PROJ-123\`). Free text. Validate format \`^[A-Z][A-Z0-9]+-\\d+$\`.
 2. **Target repo absolute path**. Free text. Default to the current working directory if it's a git repo.
 
-Do not guess — always ask, even if a key appears elsewhere in context.`,
+Do not guess - always ask, even if a key appears elsewhere in context.`,
       `Ask the user in chat for:
 
 1. **Jira ticket key** (e.g. \`PROJ-123\`). Free text. Validate format \`^[A-Z][A-Z0-9]+-\\d+$\` before proceeding. Do not guess.
 2. **Target repo absolute path**. Free text. Default to the current working directory if it's a git repo.
 
-Do not guess — always ask, even if a key appears elsewhere in context.`,
+Do not guess - always ask, even if a key appears elsewhere in context.`,
     ],
 
-    // Step 4 — branch already exists: replace AskUserQuestion reference
+    // Step 4 - branch already exists: replace AskUserQuestion reference
     [
       `ask the user via \`AskUserQuestion\` whether to (a) reuse it`,
       `ask the user in chat whether to (a) reuse it`,
     ],
 
-    // Step 4 — worktree already exists: replace AskUserQuestion reference
+    // Step 4 - worktree already exists: replace AskUserQuestion reference
     [
       `ask whether to reuse it, remove+recreate, or abort.`,
       `ask the user in chat whether to reuse it, remove+recreate, or abort.`,
     ],
 
-    // Step 5 — delegate to code-architect: replace Agent tool invocation
+    // Step 5 - delegate to code-architect: replace Agent tool invocation
     [
-      `## Step 5 — Delegate to code-architect (Albus)
+      `## Step 5 - Delegate to code-architect (Albus)
 
 Invoke the agent via the \`Agent\` tool:
 
 - \`subagent_type: "code-architect"\`
 - \`description\`: "Kick off <TICKET>: <short summary>"
 - \`prompt\`: include the full \`.jira-brief.md\` contents inline, the worktree absolute path, the Jira URL, and an explicit instruction: "Treat \`<worktree path>\` as your working directory. Follow your normal chain: analyze patterns, design the architecture, delegate implementation to the fullstack-developer (Harry), then hand off to code-reviewer and docs-maintainer as appropriate. Do not modify files outside the worktree."
-- Do NOT pass \`isolation: worktree\` — the worktree we created IS the isolation.`,
-      `## Step 5 — Switch to Albus persona
+- Do NOT pass \`isolation: worktree\` - the worktree we created IS the isolation.`,
+      `## Step 5 - Switch to Albus persona
 
 Read \`.cursor/rules/albus-architect.mdc\` and adopt that persona. Pass the full
 \`.jira-brief.md\` contents inline as your working context. Treat \`<worktree path>\` as cwd.
@@ -253,13 +253,13 @@ design the architecture, then switch to Harry for implementation, Hermione for r
 and Ron for docs. Do not modify files outside the worktree.`,
     ],
 
-    // Step 6 — parallel tickets note: replace Claude-specific session wording
+    // Step 6 - parallel tickets note: replace Claude-specific session wording
     [
       `Tell the user they can open a separate Claude session with \`cwd=<worktree>\` to continue work in parallel with other tickets.`,
       `Tell the user they can open the worktree as a separate Cursor workspace/window (File → Open Folder → \`<repo>/.worktrees/<KEY>\`) to work on tickets in parallel.`,
     ],
 
-    // Parallel tickets section — replace Claude session wording with Cursor workspace wording
+    // Parallel tickets section - replace Claude session wording with Cursor workspace wording
     [
       `open each worktree in its own Claude session to work on tickets concurrently.`,
       `open each worktree as its own Cursor workspace/window (File → Open Folder → \`<repo>/.worktrees/<KEY>\`) to work on tickets concurrently.`,
@@ -274,7 +274,7 @@ and Ron for docs. Do not modify files outside the worktree.`,
   }
 
   // Guardrails addendum (§3.4)
-  const guardrailAddendum = `- **Do not open a new Cursor window per ticket expecting session isolation** — Cursor sessions don't map 1:1 to worktrees the way Claude Code sessions do. Instead, open the worktree as a separate Cursor workspace/window (\`File → Open Folder → <repo>/.worktrees/<KEY>\`) if parallel work is desired.`;
+  const guardrailAddendum = `- **Do not open a new Cursor window per ticket expecting session isolation** - Cursor sessions don't map 1:1 to worktrees the way Claude Code sessions do. Instead, open the worktree as a separate Cursor workspace/window (\`File → Open Folder → <repo>/.worktrees/<KEY>\`) if parallel work is desired.`;
 
   body = body.replace(
     '## Parallel tickets',
@@ -296,13 +296,13 @@ function buildLinearStartRule(rawSkillMd) {
 1. **Linear issue identifier** (e.g. \`ENG-123\`). Free text. Validate format \`^[A-Z][A-Z0-9]*-\\d+$\`.
 2. **Target repo absolute path**. Free text. Default to the current working directory if it's a git repo.
 
-Do not guess — always ask, even if an identifier appears elsewhere in context.`,
+Do not guess - always ask, even if an identifier appears elsewhere in context.`,
       `Ask the user in chat for:
 
 1. **Linear issue identifier** (e.g. \`ENG-123\`). Free text. Validate format \`^[A-Z][A-Z0-9]*-\\d+$\` before proceeding. Do not guess.
 2. **Target repo absolute path**. Free text. Default to the current working directory if it's a git repo.
 
-Do not guess — always ask, even if an identifier appears elsewhere in context.`,
+Do not guess - always ask, even if an identifier appears elsewhere in context.`,
     ],
 
     [
@@ -316,15 +316,15 @@ Do not guess — always ask, even if an identifier appears elsewhere in context.
     ],
 
     [
-      `## Step 5 — Delegate to code-architect (Albus)
+      `## Step 5 - Delegate to code-architect (Albus)
 
 Invoke the agent via the \`Agent\` tool:
 
 - \`subagent_type: "code-architect"\`
 - \`description\`: "Kick off <ISSUE>: <short title>"
 - \`prompt\`: include the full \`.linear-brief.md\` contents inline, the worktree absolute path, the Linear URL, and an explicit instruction: "Treat \`<worktree path>\` as your working directory. Follow your normal chain: analyze patterns, design the architecture, delegate implementation to the fullstack-developer (Harry), then hand off to code-reviewer and docs-maintainer as appropriate. Do not modify files outside the worktree."
-- Do NOT pass \`isolation: worktree\` — the worktree we created IS the isolation.`,
-      `## Step 5 — Switch to Albus persona
+- Do NOT pass \`isolation: worktree\` - the worktree we created IS the isolation.`,
+      `## Step 5 - Switch to Albus persona
 
 Read \`.cursor/rules/albus-architect.mdc\` and adopt that persona. Pass the full
 \`.linear-brief.md\` contents inline as your working context. Treat \`<worktree path>\` as cwd.
@@ -351,7 +351,7 @@ and Ron for docs. Do not modify files outside the worktree.`,
     body = body.replace(from, to);
   }
 
-  const guardrailAddendum = `- **Do not open a new Cursor window per issue expecting session isolation** — Cursor sessions don't map 1:1 to worktrees the way Claude Code sessions do. Instead, open the worktree as a separate Cursor workspace/window (\`File → Open Folder → <repo>/.worktrees/<ISSUE>\`) if parallel work is desired.`;
+  const guardrailAddendum = `- **Do not open a new Cursor window per issue expecting session isolation** - Cursor sessions don't map 1:1 to worktrees the way Claude Code sessions do. Instead, open the worktree as a separate Cursor workspace/window (\`File → Open Folder → <repo>/.worktrees/<ISSUE>\`) if parallel work is desired.`;
 
   body = body.replace(
     '## Parallel issues',
@@ -371,12 +371,12 @@ function track(didWrite) {
   else unchanged++;
 }
 
-// 1. .cursor/mcp.json — byte-identical copy of .mcp.json (§5.4, §8 no env-expand)
+// 1. .cursor/mcp.json - byte-identical copy of .mcp.json (§5.4, §8 no env-expand)
 const mcpJson = read('.mcp.json');
 track(writeIdempotent('.cursor/mcp.json', mcpJson));
 
 // 2. .cursor/README.md (§5.8)
-const cursorReadme = `# .cursor/ — generated files
+const cursorReadme = `# .cursor/ - generated files
 
 > **Do not edit these files by hand.**
 > They are generated from \`.claude/\` by \`scripts/sync-cursor.mjs\`.

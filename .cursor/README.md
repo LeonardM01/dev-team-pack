@@ -1,4 +1,4 @@
-# .cursor/ — generated files
+# .cursor/ - generated files
 
 > **Do not edit these files by hand.**
 > They are generated from `.claude/` by `scripts/sync-cursor.mjs`.
