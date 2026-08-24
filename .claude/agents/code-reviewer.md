@@ -58,8 +58,8 @@ For each change, systematically ask:
 
 ### Step 4: Deliver the Review
 
-Line 1: VERDICT: APPROVE or VERDICT: CHANGES_REQUESTED - nothing before it. The dispatcher reads this line by machine.
-Line 2: Round N of M. Blockers: x. Should-fix: y. Nits: z.
+Line 1: VERDICT: APPROVE, VERDICT: CHANGES_REQUESTED, or VERDICT: ROUND_CAP_EXCEEDED - nothing before it. The dispatcher reads this line by machine. ROUND_CAP_EXCEEDED is the refusal case defined in Review Inputs above: it stands alone with no findings and no counts, because no review was performed.
+Line 2 (APPROVE and CHANGES_REQUESTED only): Round N of M. Blockers: x. Should-fix: y. Nits: z.
 
 Summary - 2-3 sentences: which standards were applied, whether requirement coverage was checked, and whether the tests were run.
 
