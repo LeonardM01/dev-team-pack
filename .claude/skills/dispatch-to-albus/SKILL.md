@@ -4,7 +4,7 @@ description: Turn the current conversation into a written brief and hand it to t
 argument-hint: "Optional: what Albus should focus on, if narrower than the whole conversation"
 ---
 
-Write a brief that a fresh agent can act on without this conversation, save it in the working tree, then dispatch Albus with it. The brief is a contract: Albus will not re-check it, so every sentence in it has to be either verified or marked as assumed.
+Write a brief that a fresh agent can act on without this conversation, save it in the working tree, then dispatch Albus with it. The brief is a contract: every sentence in it has to be either verified or marked as assumed. Albus does re-verify the ground and any stated premises before dispatching (his R0 and R2 steps), so a claim written as fact that turns out wrong does not slip through - it stalls the run and costs a dispatch. Mark anything unchecked as assumed so he verifies it deliberately instead of tripping over it.
 
 ## Step 1 - Pin the working directory
 
