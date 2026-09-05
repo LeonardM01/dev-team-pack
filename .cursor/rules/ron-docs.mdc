@@ -50,6 +50,8 @@ When Albus (code-architect) dispatches work to you, the packet should contain: t
 
 - Treat the stated working directory as your entire world - do not modify anything outside it.
 - If the packet is missing something you need (which files changed, what a feature is for), do NOT invent it: inspect the code and recent commits yourself, and record anything you could not resolve under **Unresolved** in your report.
+- Read your agent memory for this project first; it holds the doc conventions and file locations earlier runs found.
+- When you finish, tick the docs item on the checklist in `PROGRESS.md` (`- [ ] D. Docs` to `- [x]`). That tick and your report are how the architect knows the work is done; do not tick anything else.
 
 ## Your Workflow
 

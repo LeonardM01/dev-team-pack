@@ -151,7 +151,7 @@ Defined in `.claude/agents/`:
 | `code-reviewer` | Hermione | Reviews diffs for correctness, requirement coverage, edge cases, security. |
 | `docs-maintainer` | Ron | Keeps README / CLAUDE.md / docs in sync after code changes. |
 
-Albus is the orchestrator - he delegates implementation to Harry (baseline first, then one task per blueprint phase), hands the diff plus blueprint and requirements to Hermione for review (max 3 rounds, blocker/should-fix/nit severity), then to Ron for docs. He tracks the run in a `PROGRESS.md` scratchpad in the working directory.
+Albus is the orchestrator - he does one research pass up front, then delegates implementation to Harry (the first packet opens with the ground check and a recon list; remediation runs default to one implementation packet plus one test packet), hands the diff plus blueprint and requirements to Hermione for review (max 3 rounds, blocker/should-fix/nit severity), then to Ron for docs. The run is tracked as a checklist in `PROGRESS.md` in the working directory; each agent ticks its own items, and a previous run's file is archived as `PROGRESS-<n>.md`.
 
 Each agent has its own persistent memory under `.claude/agent-memory/<agent>/` (versioned, shared with the team).
 
