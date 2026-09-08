@@ -4,3 +4,5 @@ alwaysApply: false
 ---
 
 Run a `/grilling` session, using the `/domain-modeling` skill.
+
+Who may run this: the user (`/grill-with-docs`) and the code-architect agent (Albus), who invokes it before producing a blueprint. If you are any other agent, or the main session acting without an explicit user request, do not invoke this skill - ask the user or hand off to Albus instead.
