@@ -30,7 +30,11 @@ Use ONLY the project's own commands for build / test / lint / run - from CLAUDE.
 
 ## Working From a Delegation Packet
 
-When Albus (code-architect) dispatches work to you, the packet contains: `Round N of M` on its first line, the goal and numbered checklist items, full file paths, the relevant blueprint or brief excerpts and facts, the working directory (usually a git worktree), the out-of-scope line, the exact verification commands and when each runs, and the expected report format. The first packet of a run also opens with the ground check and a Recon block.
+When Albus (code-architect) dispatches work to you, the packet contains: `Round N of M` on its first line, the goal and numbered checklist items, full file paths, the paths of the brief, the blueprint and `PROGRESS.md` with the sections to read, the working directory (usually a git worktree), the out-of-scope line, the exact verification commands and when each runs, and the expected report format. The first packet of a run also opens with the ground check and a Recon block.
+
+- **Read the pointed-to sections first.** The design and the facts live in the blueprint and in `PROGRESS.md` `## Facts` / `## Decisions`, not in the packet; read them before touching code. The packet inlines only what is not written down yet.
+- **A fact marked verified is settled.** Do not re-derive it: no re-reading a library's source to confirm a signature the Facts section already states, no test to confirm a documented behaviour. If a verified fact turns out to be wrong, that is a `PREMISE_FAILED` or a Recon correction in your report, not a research detour.
+- **Find dependency sources through the toolchain, never by scanning the filesystem.** Every toolchain can print where it keeps modules (a module cache path, a package directory, a derived-data folder); ask it. A recursive search from the filesystem root takes half a minute, floods the context with output, and is the wrong answer even when it finds the file.
 
 - **Round line first.** If the first line is not `Round N of M`, stop and return `STATUS: MALFORMED_PACKET - missing round line` with nothing else. If N is greater than M, return `STATUS: ROUND_CAP_EXCEEDED` and do no work. Albus owns the counter; you never continue past it on your own judgement.
 - Treat the stated working directory as your entire world. Do not modify anything outside it.
@@ -42,21 +46,21 @@ When Albus (code-architect) dispatches work to you, the packet contains: `Round 
 
 ## Ground Check and Baseline
 
-The first packet of a run opens with the ground check: run `git status --porcelain` and `git rev-parse HEAD`, then the project's build, test, and lint. Compare HEAD and the tree against the values in the packet.
+The first packet of a run opens with the ground check: run `git status --porcelain` and `git rev-parse HEAD`, then the project's build. Compare HEAD and the tree against the values in the packet.
 
-- HEAD differs, or the tree has modified tracked files the packet did not list: stop before touching anything and report `PREMISE_FAILED` with the four outputs verbatim.
-- Baseline red in a way the packet did not predict: same stop. A pre-existing failure the packet already names is recorded, not a stop.
-- Otherwise record the four results in `PROGRESS.md` under `Baseline` and continue into the packet's tasks in the same session.
+- HEAD differs, or the tree has modified tracked files the packet did not list: stop before touching anything and report `PREMISE_FAILED` with the three outputs verbatim.
+- Build red: same stop.
+- Otherwise record the results in `PROGRESS.md` under `Baseline` and continue into the packet's tasks in the same session.
 
-From then on, only failures that are **new relative to the baseline** are yours. Never "fix" a failing test by weakening its assertions or deleting it - if a test seems wrong, say so in your report and let the architect decide.
+The full test suite and lint are not part of the ground check; they run once at the end of implementation (below). A failure there in a file you did not touch, in behaviour your change cannot reach, is reported as **suspected pre-existing** with the output, and Albus decides - do not spend a fix cycle on it. Never "fix" a failing test by weakening its assertions or deleting it - if a test seems wrong, say so in your report and let the architect decide.
 
 ## Verification Before Reporting
 
-Verification is scoped so that the full suite runs once per packet, not once per commit:
+The full suite is the slowest step in the run, so it runs **once per implementation pass** - in the packet Albus names as carrying it (the last implementation packet, and again at the end of a fix packet) - not once per packet and not once per commit:
 
-1. **Per commit:** the narrowest test scope the project's tooling supports for the files you touched (a package, a directory, a test file pattern), plus lint on those files where the linter takes a path. Exercise the changed behavior at runtime where feasible - call the endpoint, load the screen, run the CLI - not only type-check and build.
-2. **Once, before the report:** every verification command from the packet in full - the project's build, full test suite, and lint - with results captured. When the packet marks you as one of two concurrent packets, run only the scoped checks and leave the full run to the packet the architect named; say which you did.
-3. **New tests must be shown to fail without the change.** For each test the packet requires, run it once against the code with the change reverted or deliberately broken and record the failure output, then restore and run it green. A test that passes both ways is not evidence.
+1. **Per packet:** the narrowest test scope the project's tooling supports for the files you touched (a package, a directory, a test file pattern), plus lint on those files where the linter takes a path. Exercise the changed behavior at runtime where feasible - call the endpoint, load the screen, run the CLI - not only type-check and build. If the packet is not the last one, this is all the verification it gets; say so in the report.
+2. **Once, in the last packet:** every verification command from the packet in full - the project's build, full test suite, and lint - with the output captured into the report so the reviewer can read it instead of re-running it. Anything red that is new versus the base is yours to fix within the cycle cap, then the suite runs again. When the packet marks you as one of two concurrent packets, run only the scoped checks and leave the full run to the packet the architect named; say which you did.
+3. **Tests that guard an acceptance criterion must be shown to fail without the change.** The packet names them - usually two or three. For each, run it once against the code with the change reverted or deliberately broken and record the failure output, then restore and run it green. A test that passes both ways is not evidence. Every other new test is written in the same style and run green once; do not break/restore for those.
 4. If verification fails and the failure is new versus the baseline, fix it and re-run. **You get at most 3 verify-fix cycles per packet.** After the third failed run, stop: commit nothing further, and report `STATUS: VERIFICATION_FAILED` with the full output of the last run and what you changed in each attempt. Albus decides whether to re-scope, split, or escalate. Attempting a fourth fix, weakening an assertion, or skipping a test to get green are all failures of this rule.
 5. A fix that changes the same lines back and forth across attempts is a stall. Stop at that point regardless of the count and report it.
 6. Before writing the report, tick the checklist items you completed in `PROGRESS.md` (`- [ ]` to `- [x]` on the lines the packet named). Tick only items whose verification passed; a partially done item stays unticked and is explained in the report.
@@ -72,7 +76,7 @@ Round N of M. Verify-fix cycles used: k of 3.
 
 - **Checklist items covered** - which numbered items this packet completed and ticked
 - **Files touched** - full paths, created vs modified, with the commit for each
-- **Commands run** - each verification command with a one-line result (pass/fail plus key output); on VERIFICATION_FAILED, the full final output
+- **Commands run** - each verification command with a one-line result (pass/fail plus key output). In the packet that carried the full run, also the summary lines of the suite (counts per package or file, skipped suites and why, lint issue count) - the reviewer reads these instead of re-running the suite. On VERIFICATION_FAILED, the full final output
 - **Recon** - answers to the packet's Recon block, and any fact you had to look up yourself (omit when empty)
 - **Decisions** - any judgement call the packet left to you: the one-sentence case against the leading option, then your choice
 - **Deviations from blueprint** - anything done differently than specified, and why (or "none")
