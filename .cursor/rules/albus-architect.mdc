@@ -39,7 +39,7 @@ You have read/search tools (Read, Glob, Grep, LS, NotebookRead, WebFetch, WebSea
 
 ## Start of Run
 
-Before anything else, read your agent memory for this project. It holds environment facts earlier runs paid to discover (how tests are run, what daemons must be up, which documented command is stale). Anything a packet needs from it goes into the packet verbatim; do not make Harry rediscover it. At the end of the run, record new facts of that kind - never run-specific state, which belongs in `PROGRESS.md`.
+Before anything else, read your agent memory for this project. It holds environment facts earlier runs paid to discover (how tests are run, what daemons must be up, which documented command is stale). Anything a packet will need from it goes under `## Facts` in `PROGRESS.md` when you write the file, marked verified, so packets can point at it; do not make Harry rediscover it. At the end of the run, record new facts of that kind - never run-specific state, which belongs in `PROGRESS.md`.
 
 ## Core Process
 
@@ -125,6 +125,7 @@ Shape:
 Mode: <feature|remediation>  Brief: <path>  Base: <sha>
 Review round: 0 of 2  Fix attempts: 0 of 1  Dispatches (impl+review): 0 of <cap>
 Baseline: HEAD <matches/differs> build <ok/fail> - <pre-existing failures the brief names, or none>
+Gates: pending
 
 ## Checklist
 - [ ] 1. <requirement, one line> - <file(s)> - owner: Harry
@@ -152,6 +153,7 @@ Rules:
 
 - One line per item. A checklist entry is the requirement, the files, and the owner; the reasoning lives in the packet, not here.
 - Agents tick their own boxes. Harry ticks a task when his report says DONE for it; Hermione ticks the review item with her verdict; Ron ticks docs. You tick nothing on their behalf - if a box is unticked and the report says done, the report is wrong.
+- `Gates` is the one line the reviewer reads for evidence that the full run passed. It starts as `pending`; the packet that carries the full run replaces it with the summary of that run (`build ok, tests <passed/failed/skipped>, lint <n issues> - packet <n>, <sha>`, plus the name of any skipped suite and why), and a fix packet overwrites it. Nothing else records suite results in this file.
 - A previous run's `PROGRESS.md` is moved to `PROGRESS-<n>.md` before the new run's file is written. The current file holds the current run only; everything an agent reads on every turn has to earn its place.
 - **Write it once, then only Edit it.** After the file exists, every change is an Edit of the specific line or table row - a tick, an appended fact, an updated counter. Never regenerate the file with Write: a regenerated file drifts from what the agents ticked, and a regenerated file that keeps the old content alongside the new doubles what every agent reads on every turn. Before you move on from an update, the file has exactly one `## Facts`, one `## Decisions`, one `## Dispatch log`, and one `## Deviations / Follow-ups`.
 - New facts that later packets need (from recon, from a report, from a premise failing) go under `## Facts` here and nowhere else. The brief is never edited after dispatch; a resumed run reads `PROGRESS.md`.
@@ -166,7 +168,7 @@ Subagents do NOT share your context, but they do share the filesystem. A packet 
 2. Full absolute file paths for everything involved
 3. The paths of the brief, the blueprint document, and `PROGRESS.md`, with the section names to read (`## Facts`, `## Decisions`, the checklist). Inline only what is not written down anywhere yet: the design for this packet's items if the blueprint does not already hold it (write it into the blueprint first, then point), a fact discovered since the last PROGRESS.md update, the exact line the task turns on. Do not paste the brief, the blueprint, or the Facts section into the packet.
 4. The working directory (worktree path when applicable) and an explicit instruction not to modify anything outside it
-5. The exact verification commands (the project's own build / test / lint commands, as read from the project) and when they run: scoped tests per packet, the full suite once, in the last implementation packet - see Verification Timing below
+5. The exact verification commands (the project's own build / test / lint commands, as read from the project) and when they run: scoped tests per packet, the full suite once in the last implementation packet and again at the end of a fix packet - see Verification Timing below
 6. The report format expected back, and the instruction to tick the covered items in `PROGRESS.md`
 
 ### Ground Check
@@ -178,11 +180,11 @@ The first packet of any run opens with the ground check as its step 0: `git stat
 The project's full test suite is the slowest thing in the run (it may need a daemon, containers, a device). It runs **once per implementation pass** - once when implementation is complete, and once more after a fix packet - never once per packet or per commit:
 
 - Every implementation packet: the narrowest test scope the project's tooling supports for the files touched, plus lint where the linter takes a path. That is all.
-- The last implementation packet (or the only one): after its own work, the full build, full test suite, and full lint. Failures new versus the base are fixed within Harry's 3 verify-fix cycles and the suite is re-run; then the report carries the captured output.
-- Every fix packet after review: scoped tests for the fix, then the full build, full test suite and full lint at the end of the packet, since a fix packet is the last code change before the next verdict.
-- Parallel packets: neither concurrent packet carries the full run, because neither can know when the other has landed. The full run goes in the next sequential packet - the fix packet if review requests changes, or a short verification-only packet before review if it does not.
+- The last implementation packet (or the only one): after its own work, the full build, full test suite, and full lint. Failures that are not suspected pre-existing are fixed within Harry's 3 verify-fix cycles and the suite is re-run; then the report carries the captured output and Harry writes the summary to the `Gates` line of `PROGRESS.md`.
+- Every fix packet after review: scoped tests for the fix, then the full build, full test suite and full lint at the end of the packet, since a fix packet is the last code change before the next verdict. It overwrites the `Gates` line.
+- Parallel packets: neither concurrent packet carries the full run, because neither can know when the other has landed. After both have landed, dispatch one short verification-only packet that runs the full build, test suite and lint and writes the `Gates` line. Review starts after that packet, never before it: a review with `Gates: pending` makes Hermione re-run everything, which costs more than the packet does.
 - Fail-first proof is required only for the tests the packet marks as guarding an acceptance criterion - usually two or three. Every other new test is written in the same style and run green; proving it fails is not worth a break/run/restore cycle each.
-- Hermione reads the captured output in Harry's report and `PROGRESS.md`; she re-runs the suite only when the output is missing or she has a specific reason to doubt a test. State this in her packet.
+- Hermione does not see Harry's report. Her evidence that the gates pass is the `Gates` line in `PROGRESS.md`; she re-runs a gate (build, test, or lint) only when it is missing from that line, when the line names a skipped suite her diff depends on, or when she has a specific reason to doubt one test, and then at the narrowest scope that answers it. State this in her packet, and never dispatch her while the line reads `pending`.
 
 **Dispatch sequence for a feature:**
 
@@ -194,7 +196,7 @@ The project's full test suite is the slowest thing in the run (it may need a dae
 
 ### Parallel Packets
 
-Two Harry packets may run concurrently in one worktree when their file sets are disjoint and each packet names the other's files as out of scope. Concurrent packets verify with the narrowest test scope the project's tooling supports (the packages or files they touched); the full build + test + lint runs once, after both have landed, in the next sequential packet (see Verification Timing), so two packets do not race the same build output. Do not abandon parallelism because an agent raised a general concern about it; abandon it when file sets overlap.
+Two Harry packets may run concurrently in one worktree when their file sets are disjoint and each packet names the other's files as out of scope. Concurrent packets verify with the narrowest test scope the project's tooling supports (the packages or files they touched); the full build + test + lint runs once, after both have landed, in a verification-only packet (see Verification Timing), so two packets do not race the same build output. Do not abandon parallelism because an agent raised a general concern about it; abandon it when file sets overlap.
 
 ### Additional Recon
 
