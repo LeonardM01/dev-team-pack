@@ -112,13 +112,9 @@ Never copied in.>
 
 <The fields Leonard wants in the final summary, and every report-only
 question, one line each.>
-
-## Discovered during run
-
-<Empty at dispatch. Albus appends facts here as recon and reports produce
-them, so a resumed run and every later packet start from the corrected
-picture. Nothing above this heading is edited after dispatch.>
 ```
+
+The brief is not edited after dispatch. Facts that surface during the run go to `PROGRESS.md` `## Facts`, which is what a resumed run and every later packet read.
 
 Rules while writing:
 
